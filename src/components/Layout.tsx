@@ -26,6 +26,7 @@ import { AutoUpdateCheck } from './AutoUpdateCheck';
 import { useProjectMatches } from '../hooks/useProjectMatches';
 import { useContentIndexNotifications } from '../hooks/useContentIndex';
 import Logo from '../assets/athenaeum.png';
+import { useI18n } from '../i18n/I18nContext';
 
 /** Mounts the global `project-set-match` listener. Rendered inside
  * `NotificationProvider` (below) so `useProjectMatches` → `useNotifications`
@@ -44,6 +45,7 @@ function ContentIndexListener() {
 }
 
 export default function Layout() {
+  const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('sidebar-collapsed') === 'true'
   );
@@ -53,16 +55,16 @@ export default function Layout() {
   }, [collapsed]);
 
   const navItems = [
-    { to: '/files', icon: Files, label: 'File Manager' },
-    { to: '/objects', icon: Target, label: 'Objects' },
-    { to: '/projects', icon: Users, label: 'Projects' },
-    { to: '/equipment', icon: Camera, label: 'Equipment' },
-    { to: '/skychart', icon: Focus, label: 'Sky Chart' },
-    { to: '/calendar', icon: Calendar, label: 'Shoot Calendar' },
-    { to: '/blackhole', icon: Trash2, label: 'Black Hole' },
-    { to: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
-    { to: '/settings', icon: Settings, label: 'Settings' },
-    { to: '/about', icon: Info, label: 'About' },
+    { to: '/files', icon: Files, label: t('nav.fileManager') },
+    { to: '/objects', icon: Target, label: t('nav.objects') },
+    { to: '/projects', icon: Users, label: t('nav.projects') },
+    { to: '/equipment', icon: Camera, label: t('nav.equipment') },
+    { to: '/skychart', icon: Focus, label: t('nav.skyChart') },
+    { to: '/calendar', icon: Calendar, label: t('nav.shootCalendar') },
+    { to: '/blackhole', icon: Trash2, label: t('nav.blackHole') },
+    { to: '/transfers', icon: ArrowLeftRight, label: t('nav.transfers') },
+    { to: '/settings', icon: Settings, label: t('nav.settings') },
+    { to: '/about', icon: Info, label: t('nav.about') },
   ];
 
   return (
@@ -84,7 +86,7 @@ export default function Layout() {
               {!collapsed && (
                 <div>
                   <h1 className="text-2xl font-medium text-success font-antiqua tracking-wide">ATHENAEUM</h1>
-                  <p className="text-xs text-content-muted">Astrophotography Library</p>
+                  <p className="text-xs text-content-muted">{t('app.tagline')}</p>
                 </div>
               )}
             </div>
@@ -119,12 +121,12 @@ export default function Layout() {
             <div className={`${collapsed ? 'p-2' : 'p-4'} pt-0`}>
               <button
                 onClick={() => setCollapsed(c => !c)}
-                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+                title={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
                 className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-3 px-4'} py-3 rounded-lg transition-colors text-content-muted hover:bg-surface-hover w-full`}
               >
                 {collapsed ? <ChevronsRight size={20} /> : <ChevronsLeft size={20} />}
-                {!collapsed && <span>Collapse</span>}
+                {!collapsed && <span>{t('sidebar.collapseButton')}</span>}
               </button>
             </div>
           </aside>

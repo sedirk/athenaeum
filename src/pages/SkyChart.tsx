@@ -11,6 +11,7 @@ import { useMapViewState } from '../hooks/useMapViewState';
 import { SelectionDialog } from '../components/SelectionDialog';
 import { DateRangeFilter, DateParts, toISODateRange } from '../components/DateRangeFilter';
 import '../styles/celestial-overrides.css';
+import { useI18n } from '../i18n/I18nContext';
 
 // Declare global Celestial and d3 from d3-celestial
 declare global {
@@ -41,6 +42,7 @@ function inverseGnomonic(
 }
 
 export default function SkyChart() {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInitialized = useRef(false);
   const resizeTimeoutRef = useRef<number | undefined>(undefined);
@@ -1303,7 +1305,7 @@ export default function SkyChart() {
       {/* Header */}
       <div className="flex-shrink-0 py-[14px] px-4 border-b border-border bg-surface-elevated flex items-center justify-between">
         {/* Left: Title */}
-        <h2 className="text-2xl font-bold text-content">Sky Chart</h2>
+        <h2 className="text-2xl font-bold text-content">{t('skyChart.title')}</h2>
 
         {/* Right: Controls */}
         <div className="flex items-center gap-4">

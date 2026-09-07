@@ -8,6 +8,7 @@ import { AlertDialog } from '../components/AlertDialog';
 import { MissingMetadataView } from '../components/missing-metadata/MissingMetadataView';
 import { DuplicatesView } from '../components/duplicates/DuplicatesView';
 import FoldersTab from '../components/folders/FoldersTab';
+import { useI18n } from '../i18n/I18nContext';
 
 type TabMode = 'directories' | 'browse' | 'duplicates' | 'missing-metadata';
 type DuplicatesViewMode = 'files' | 'folders';
@@ -19,6 +20,7 @@ const isInFolder = (path: string, folder: string) =>
   path.startsWith(folder + (folder.includes('\\') ? '\\' : '/'));
 
 export default function FileManager() {
+  const { t } = useI18n();
   // The Folders tab owns its own scan-root state; this instance exists for the
   // Browse Files tab, which hands the roots to the dual-pane browser. The two
   // instances are kept in step by the `onRootsChanged` callback below — without
@@ -123,9 +125,9 @@ export default function FileManager() {
     <div className="p-4 pt-3 h-full flex flex-col min-h-0">
       <div className="mb-4">
         <h2 className="text-2xl font-bold">
-          File Manager
+          {t('fileManager.title')}
           <span className="text-sm font-normal text-content-muted ml-3">
-            Manage folders, roles and archive destinations; browse FITS/XISF files and metadata
+            {t('fileManager.subtitle')}
           </span>
         </h2>
       </div>
@@ -142,7 +144,7 @@ export default function FileManager() {
         >
           <div className="flex items-center gap-2">
             <Folder size={16} />
-            Folders
+            {t('fileManager.tab.folders')}
           </div>
         </button>
         <button
@@ -155,7 +157,7 @@ export default function FileManager() {
         >
           <div className="flex items-center gap-2">
             <Filter size={16} />
-            Browse Files
+            {t('fileManager.tab.browse')}
           </div>
         </button>
         <button
@@ -168,7 +170,7 @@ export default function FileManager() {
         >
           <div className="flex items-center gap-2">
             <Copy size={16} />
-            Duplicates
+            {t('fileManager.tab.duplicates')}
           </div>
         </button>
         <button
@@ -181,7 +183,7 @@ export default function FileManager() {
         >
           <div className="flex items-center gap-2">
             <AlertCircle size={16} />
-            Missing Metadata{missingMetadataCount != null ? ` (${missingMetadataCount})` : ''}
+            {t('fileManager.tab.missingMetadata')}{missingMetadataCount != null ? ` (${missingMetadataCount})` : ''}
           </div>
         </button>
       </div>

@@ -17,8 +17,10 @@ import { ObjectsTableView } from '../components/ObjectsTableView';
 import type { ObjectsTab } from '../components/ObjectsTableView';
 import { ToolbarContainer, ToolbarButton, ToolbarDivider, ToolbarInfo } from '../components/Toolbar';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useI18n } from '../i18n/I18nContext';
 
 export default function Objects() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const [frameSets, setFrameSets] = useState<FramesSetWithCount[]>([]);
@@ -744,18 +746,18 @@ export default function Objects() {
           row still aligns with the File Manager tab strip) */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">
-          Objects Library
-          <span className="text-sm font-normal text-content-muted ml-3">Frame sets grouped by sky coordinates</span>
+          {t('objects.title')}
+          <span className="text-sm font-normal text-content-muted ml-3">{t('objects.subtitle')}</span>
         </h2>
         <div className="flex items-center gap-2">
           {excludedCount > 0 && (
             <button
               onClick={() => navigate('/excluded')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-surface-hover hover:brightness-110 text-warning transition-colors"
-              title="View excluded frames"
+              title={t('excluded.title')}
             >
               <FileX size={15} />
-              {excludedCount} excluded
+              {t('objects.excluded', { count: excludedCount })}
             </button>
           )}
           {/* Merge mode — available in Stage and WIP */}
@@ -768,10 +770,10 @@ export default function Objects() {
                     ? 'bg-success hover:brightness-90 text-surface'
                     : 'bg-surface-hover hover:bg-surface-hover text-content-secondary'
                 }`}
-                title={`${isMergeMode ? 'Exit' : 'Enter'} Merge Mode (M)`}
+                title={`${isMergeMode ? t('objects.exitMergeMode') : t('objects.mergeMode')} (M)`}
               >
                 <Grip size={15} />
-                {isMergeMode ? 'Exit Merge Mode' : 'Merge Mode'}
+                {isMergeMode ? t('objects.exitMergeMode') : t('objects.mergeMode')}
               </button>
               <div className="h-5 w-px bg-border" />
             </>
@@ -785,7 +787,7 @@ export default function Objects() {
                   ? 'bg-accent text-surface'
                   : 'text-content-muted hover:text-content'
               }`}
-              title="Card view"
+              title={t('objects.cardView')}
             >
               <LayoutGrid size={16} />
             </button>
@@ -796,7 +798,7 @@ export default function Objects() {
                   ? 'bg-accent text-surface'
                   : 'text-content-muted hover:text-content'
               }`}
-              title="Table view"
+              title={t('objects.tableView')}
             >
               <Table2 size={16} />
             </button>
@@ -808,10 +810,10 @@ export default function Objects() {
                 ? 'bg-accent hover:bg-accent-hover text-surface'
                 : 'bg-surface-hover hover:bg-surface-hover text-content-secondary'
             }`}
-            title="Filter frame sets"
+            title={t('objects.filterTitle')}
           >
             <Filter size={15} />
-            Filter
+            {t('objects.filter')}
             {activeFilterCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-orange text-surface text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                 {activeFilterCount}
@@ -824,9 +826,9 @@ export default function Objects() {
       {/* Tab bar — tabs only; sized + positioned to match File Manager */}
       <div className="flex gap-2 mb-3 border-b border-border">
           {([
-            { key: 'stage' as ObjectsTab, label: 'Stage', icon: Sparkles },
-            { key: 'wip' as ObjectsTab, label: 'Work In Progress', icon: Star },
-            { key: 'archive' as ObjectsTab, label: 'Archive', icon: Archive },
+            { key: 'stage' as ObjectsTab, label: t('objects.tab.stage'), icon: Sparkles },
+            { key: 'wip' as ObjectsTab, label: t('objects.tab.wip'), icon: Star },
+            { key: 'archive' as ObjectsTab, label: t('objects.tab.archive'), icon: Archive },
           ]).map(({ key, label, icon: Icon }) => (
             <button
               key={key}

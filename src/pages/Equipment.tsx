@@ -4,11 +4,13 @@ import { api } from '../api';
 import { CameraStats } from "../types/models";
 import CameraCard from "../components/CameraCard";
 import CameraDetail from "../components/CameraDetail";
+import { useI18n } from '../i18n/I18nContext';
 
 const CAMERA_DETAIL_TABS = ["files", "darks", "flats", "master-darks", "master-flats"] as const;
 type CameraDetailTab = typeof CAMERA_DETAIL_TABS[number];
 
 export default function Equipment() {
+  const { t } = useI18n();
   const [cameras, setCameras] = useState<CameraStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,14 +84,14 @@ export default function Equipment() {
     <div className="p-4 pt-3">
       <div className="mb-4">
         <h2 className="text-2xl font-bold">
-          Equipment Library
-          <span className="text-sm font-normal text-content-muted ml-3">Browse instruments with captured frames and calibration library management</span>
+          {t('equipment.title')}
+          <span className="text-sm font-normal text-content-muted ml-3">{t('equipment.subtitle')}</span>
         </h2>
       </div>
 
       {loading && (
         <div className="text-center py-12 text-content-muted">
-          Loading equipment...
+          {t('equipment.loading')}
         </div>
       )}
 
@@ -102,7 +104,7 @@ export default function Equipment() {
       {!loading && !error && cameras.length === 0 && (
         <div className="bg-surface-elevated rounded-lg p-8 text-center">
           <p className="text-content-muted">
-            No cameras found. Scan some directories to populate your equipment library.
+            {t('equipment.empty')}
           </p>
         </div>
       )}

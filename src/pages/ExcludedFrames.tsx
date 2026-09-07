@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { api } from '../api';
 import { MissingMetadataView } from '../components/missing-metadata/MissingMetadataView';
 import type { ExcludedFrameRow, MissingMetadataRow } from '../types/models';
+import { useI18n } from '../i18n/I18nContext';
 
 /**
  * Excluded Frames page — frames the auto-generate-frame-sets pass refused
@@ -21,6 +22,7 @@ import type { ExcludedFrameRow, MissingMetadataRow } from '../types/models';
  *     row leaves the list once the user has fixed its metadata
  */
 export default function ExcludedFrames() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [count, setCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,14 +61,14 @@ export default function ExcludedFrames() {
           className="flex items-center gap-2 text-content-muted hover:text-content transition-colors mb-2"
         >
           <ArrowLeft size={18} />
-          Back to Objects
+          {t('excluded.back')}
         </button>
         <h2 className="text-2xl font-bold">
-          Excluded Frames
+          {t('excluded.title')}
           <span className="text-sm font-normal text-content-muted ml-3">
             {count == null
-              ? 'Loading…'
-              : `${count} frame${count !== 1 ? 's' : ''} excluded during auto-generation — fix metadata in bulk and re-run auto-generate to adopt them`}
+              ? t('excluded.loading')
+              : t('excluded.summary', { count })}
           </span>
         </h2>
       </div>
@@ -79,7 +81,7 @@ export default function ExcludedFrames() {
             onClick={() => setError(null)}
             className="ml-2 underline hover:no-underline"
           >
-            Dismiss
+            {t('common.dismiss')}
           </button>
         </div>
       )}

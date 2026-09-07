@@ -1,35 +1,37 @@
 import { RefreshCw, Target, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
+import { useI18n } from '../i18n/I18nContext';
 
 export default function Projects() {
+  const { t } = useI18n();
   const { projects, loading, refreshing, signedOut, refresh } = useProjects();
 
-  if (loading) return <p className="p-6 text-content-muted">Loading projects…</p>;
+  if (loading) return <p className="p-6 text-content-muted">{t('projects.loading')}</p>;
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-3">
         <Users size={20} className="text-content-secondary" />
-        <h1 className="text-lg font-semibold text-content">Projects</h1>
+        <h1 className="text-lg font-semibold text-content">{t('projects.title')}</h1>
         <button
           onClick={() => void refresh()}
           disabled={refreshing}
           className="ml-auto inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover disabled:opacity-50"
         >
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
+          {t('common.refresh')}
         </button>
       </div>
 
       {signedOut && (
         <p className="text-sm text-content-muted">
-          Sign in (Settings → Account) to see your collaboration projects.
+          {t('projects.signedOut')}
         </p>
       )}
       {!signedOut && projects.length === 0 && (
         <p className="text-sm text-content-muted">
-          No projects yet — browse and join on the portal, or publish a frame set as a project.
+          {t('projects.empty')}
         </p>
       )}
 

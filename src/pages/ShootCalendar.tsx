@@ -9,8 +9,10 @@ import { CalendarGrid } from '../components/calendar/CalendarGrid';
 import { CalendarYearList } from '../components/calendar/CalendarYearList';
 import { CalendarEventPanel } from '../components/calendar/CalendarEventPanel';
 import type { CalendarDayEvent } from '../types/models';
+import { useI18n } from '../i18n/I18nContext';
 
 export default function ShootCalendar() {
+  const { t } = useI18n();
   const navigate = useNavigate();
 
   // View mode state
@@ -113,8 +115,8 @@ export default function ShootCalendar() {
       {/* Header */}
       <div className="flex-shrink-0 mb-2">
         <h2 className="text-2xl font-bold">
-          Shoot Calendar
-          <span className="text-sm font-normal text-content-muted ml-3">Browse captures by date with equipment and target information</span>
+          {t('calendar.title')}
+          <span className="text-sm font-normal text-content-muted ml-3">{t('calendar.subtitle')}</span>
         </h2>
       </div>
 
@@ -136,7 +138,7 @@ export default function ShootCalendar() {
       {loading && (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
-          <span className="ml-3 text-content-muted">Loading calendar...</span>
+          <span className="ml-3 text-content-muted">{t('calendar.loading')}</span>
         </div>
       )}
 
@@ -145,7 +147,7 @@ export default function ShootCalendar() {
         <div className="bg-error-muted border border-error/50 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="text-error flex-shrink-0" />
           <div>
-            <p className="text-error font-medium">Failed to load calendar</p>
+            <p className="text-error font-medium">{t('calendar.loadError')}</p>
             <p className="text-error/70 text-sm">{error}</p>
           </div>
         </div>

@@ -6,6 +6,7 @@ import type { BlackHoleEntry } from '../types/models';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { AlertDialog } from '../components/AlertDialog';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useI18n } from '../i18n/I18nContext';
 
 interface FolderGroup {
   path: string;
@@ -20,6 +21,7 @@ interface ProgressState {
 }
 
 export default function BlackHole() {
+  const { t } = useI18n();
   const { notify } = useNotifications();
   const [entries, setEntries] = useState<BlackHoleEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -349,11 +351,11 @@ export default function BlackHole() {
       <div className="mb-4 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-bold">Black Hole</h2>
+            <h2 className="text-3xl font-bold">{t('blackHole.title')}</h2>
             <p className="text-content-muted mt-1">
-              {entries.length} file{entries.length !== 1 ? 's' : ''} • {formatSize(totalSize)} total
+              {t('blackHole.filesSummary', { count: entries.length, size: formatSize(totalSize) })}
               {selectionCount > 0 && (
-                <span className="text-warning ml-2">• {selectionCount} selected</span>
+                <span className="text-warning ml-2">{t('blackHole.selected', { count: selectionCount })}</span>
               )}
             </p>
           </div>
@@ -366,7 +368,7 @@ export default function BlackHole() {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-hover hover:brightness-90 rounded transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               <CheckSquare size={16} />
-              Select All
+              {t('common.selectAll')}
             </button>
             <button
               onClick={handleClearSelection}
@@ -374,7 +376,7 @@ export default function BlackHole() {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-hover hover:brightness-90 rounded transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               <XSquare size={16} />
-              Clear
+              {t('common.clear')}
             </button>
             <button
               onClick={handleRestoreSelected}
@@ -382,7 +384,7 @@ export default function BlackHole() {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-success hover:brightness-90 rounded transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               <RotateCcw size={16} />
-              Restore
+              {t('common.restore')}
             </button>
             <button
               onClick={handleVoidSelected}

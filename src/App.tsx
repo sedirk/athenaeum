@@ -18,6 +18,7 @@ import Settings from './pages/Settings';
 import About from './pages/About';
 import ExcludedFrames from './pages/ExcludedFrames';
 import Transfers from './pages/Transfers';
+import { useI18n } from './i18n/I18nContext';
 
 function App() {
   if (!isTauri) {
@@ -31,6 +32,7 @@ function App() {
 }
 
 function AppContent() {
+  const { t } = useI18n();
   const [dbInitialized, setDbInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
 
@@ -52,13 +54,13 @@ function AppContent() {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center max-w-md">
-          <h1 className="text-2xl font-bold text-error mb-4">Database Initialization Error</h1>
+          <h1 className="text-2xl font-bold text-error mb-4">{t('startup.databaseError')}</h1>
           <p className="text-content-muted mb-4">{initError}</p>
           <button
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg transition"
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       </div>

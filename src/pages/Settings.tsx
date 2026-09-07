@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { Save, AlertCircle, CheckCircle, RefreshCw, Settings as SettingsIcon, Crosshair, BarChart3, ScanSearch, Archive as ArchiveIcon, FolderOpen, Info, ScrollText, UserCircle, ArrowLeftRight } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle, RefreshCw, Settings as SettingsIcon, Crosshair, BarChart3, ScanSearch, Archive as ArchiveIcon, FolderOpen, Info, ScrollText, UserCircle, ArrowLeftRight, Languages } from 'lucide-react';
 import { revealItemInDir, openPath } from '../api/desktop';
 import { CalibrationMatchingConfig } from '../components/calibration';
 import LoggingSettings from '../components/settings/LoggingSettings';
@@ -17,10 +17,12 @@ import type { ArchiveCompression } from '../types/archive';
 import type { AnnotationSettings } from '../types/analysis-config';
 import { DEFAULT_ANNOTATION_SETTINGS } from '../types/helpers';
 import type { IntegrationBudgetInfo } from '../types/models';
+import { useI18n } from '../i18n/I18nContext';
 
 type ThresholdUnit = 'arcsec' | 'arcmin' | 'deg';
 
 export default function Settings() {
+  const { locale, setLocale, t } = useI18n();
   // Defaults should match backend: settings/mod.rs defaults
   const [thresholdValue, setThresholdValue] = useState('3.0');
   const [thresholdUnit, setThresholdUnit] = useState<ThresholdUnit>('deg');
@@ -562,7 +564,7 @@ export default function Settings() {
       <div className="p-6">
         <div className="text-center py-12 text-content-muted">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto"></div>
-          <p className="mt-4">Loading settings...</p>
+          <p className="mt-4">{t('settings.loading')}</p>
         </div>
       </div>
     );
@@ -571,8 +573,8 @@ export default function Settings() {
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-6">
-        <h2 className="text-3xl font-bold">Settings</h2>
-        <p className="text-content-muted">Configure application settings</p>
+        <h2 className="text-3xl font-bold">{t('settings.title')}</h2>
+        <p className="text-content-muted">{t('settings.subtitle')}</p>
       </div>
 
       {/* Tab Navigation */}
@@ -586,7 +588,7 @@ export default function Settings() {
           }`}
         >
           <SettingsIcon size={18} />
-          General
+          {t('settings.tab.general')}
         </button>
         <button
           onClick={() => setActiveTab('transfers')}
@@ -597,7 +599,7 @@ export default function Settings() {
           }`}
         >
           <ArrowLeftRight size={18} />
-          Transfers
+          {t('settings.tab.transfers')}
         </button>
         <button
           onClick={() => setActiveTab('calibration')}
@@ -608,7 +610,7 @@ export default function Settings() {
           }`}
         >
           <Crosshair size={18} />
-          Calibration
+          {t('settings.tab.calibration')}
         </button>
         <button
           onClick={() => setActiveTab('analysis')}
@@ -619,7 +621,7 @@ export default function Settings() {
           }`}
         >
           <BarChart3 size={18} />
-          Analysis
+          {t('settings.tab.analysis')}
         </button>
         <button
           onClick={() => setActiveTab('plate_solving')}
@@ -630,7 +632,7 @@ export default function Settings() {
           }`}
         >
           <ScanSearch size={18} />
-          Plate Solving
+          {t('settings.tab.plateSolving')}
         </button>
       </div>
 
@@ -640,7 +642,7 @@ export default function Settings() {
         <div className="mb-6 bg-surface-elevated rounded-lg p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <ArrowLeftRight size={20} />
-            Transfers
+            {t('settings.transfersConfig')}
           </h3>
           <p className="text-xs text-content-muted mb-4">
             Where transfers keep their working data, how fast they may upload, how many may arrive at once.
@@ -653,7 +655,7 @@ export default function Settings() {
           Manager → Folders, on the Calibration Library rail entry. */}
       {activeTab === 'calibration' && (
         <div className="bg-surface-elevated rounded-lg p-6 mt-6">
-          <h3 className="text-xl font-semibold mb-4">Calibration Matching Configuration</h3>
+          <h3 className="text-xl font-semibold mb-4">{t('settings.calibrationConfig')}</h3>
           <p className="text-content-muted mb-6">
             Configure how calibration frames (Flats, Darks, Bias) are matched to source frames.
             Define which parameters must match exactly, warn on threshold, or be ignored.
@@ -661,7 +663,7 @@ export default function Settings() {
           <CalibrationMatchingConfig />
 
           <div className="mt-6 pt-6 border-t border-border">
-            <h3 className="text-xl font-semibold mb-4">Master Build Memory</h3>
+            <h3 className="text-xl font-semibold mb-4">{t('settings.masterMemory')}</h3>
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
                 Integration memory budget (
@@ -725,7 +727,7 @@ export default function Settings() {
       {/* Analysis Tab */}
       {activeTab === 'analysis' && (
         <div className="bg-surface-elevated rounded-lg p-6">
-          <h3 className="text-xl font-semibold mb-4">Star Analysis Configuration</h3>
+          <h3 className="text-xl font-semibold mb-4">{t('settings.starAnalysisConfig')}</h3>
           <p className="text-content-muted mb-6">
             Configure star detection parameters and quality scoring weights for the Lights Analysis tab.
             Changes here affect new analyses — existing results keep their original settings until re-analyzed.
@@ -737,7 +739,7 @@ export default function Settings() {
       {/* Plate Solving Tab */}
       {activeTab === 'plate_solving' && (
         <div className="bg-surface-elevated rounded-lg p-6">
-          <h3 className="text-xl font-semibold mb-4">Plate Solving Configuration</h3>
+          <h3 className="text-xl font-semibold mb-4">{t('settings.plateSolvingConfig')}</h3>
           <p className="text-content-muted mb-6">
             Configure the astrometric plate solver used to determine sky coordinates for frames
             that are missing RA/Dec metadata. The solver matches detected stars against the
@@ -754,7 +756,7 @@ export default function Settings() {
             <div className="mb-4 p-4 bg-error-muted border border-error/50 rounded-lg flex items-start gap-3">
               <AlertCircle className="text-error flex-shrink-0 mt-0.5" size={20} />
               <div className="flex-1">
-                <p className="font-medium text-error">Error</p>
+                <p className="font-medium text-error">{t('common.error')}</p>
                 <p className="text-sm text-error/80">{String(error)}</p>
               </div>
             </div>
@@ -764,17 +766,42 @@ export default function Settings() {
             <div className="mb-4 p-4 bg-success-muted border border-success/50 rounded-lg flex items-start gap-3">
               <CheckCircle className="text-success flex-shrink-0 mt-0.5" size={20} />
               <div className="flex-1">
-                <p className="font-medium text-success">Settings saved successfully</p>
+                <p className="font-medium text-success">{t('settings.saved')}</p>
               </div>
             </div>
           )}
+
+          <div className="mb-6 bg-surface-elevated rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Languages size={20} />
+              {t('settings.language.title')}
+            </h3>
+            <p className="text-xs text-content-muted mb-4">
+              {t('settings.language.description')}
+            </p>
+            <label className="block text-sm font-medium text-content-secondary mb-2" htmlFor="display-language">
+              {t('settings.language.label')}
+            </label>
+            <select
+              id="display-language"
+              value={locale}
+              onChange={(event) => setLocale(event.target.value === 'zh-CN' ? 'zh-CN' : 'en')}
+              className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
+            >
+              <option value="en">{t('settings.language.english')}</option>
+              <option value="zh-CN">{t('settings.language.chinese')}</option>
+            </select>
+            <p className="text-xs text-content-muted mt-3">
+              {t('settings.language.coverage')}
+            </p>
+          </div>
 
           {/* Account — identity-level, kept at the top. Fully self-contained
               (see AccountSection / useAccount); the app runs signed-out. */}
           <div className="mb-6 bg-surface-elevated rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <UserCircle size={20} />
-              Account
+              {t('settings.account')}
             </h3>
             <p className="text-xs text-content-muted mb-4">
               Sign in to link this machine to your account for syncing frames between devices.
@@ -789,7 +816,7 @@ export default function Settings() {
           <div className="mb-6 bg-surface-elevated rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <RefreshCw size={20} />
-              Sync
+              {t('settings.sync')}
             </h3>
             <p className="text-xs text-content-muted mb-4">
               Send frames between your machines. A Capture device queues its frames to a paired
@@ -804,7 +831,7 @@ export default function Settings() {
         {/* Updates section - desktop only */}
         {isTauri && (
         <div>
-          <h3 className="text-lg font-semibold mb-4">Updates</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.updates')}</h3>
           <div className="space-y-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -843,7 +870,7 @@ export default function Settings() {
         )}
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Clustering Parameters</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.clustering')}</h3>
 
           <div className="space-y-4">
             {/* Threshold Value and Unit */}
@@ -879,7 +906,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Session Detection</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.sessionDetection')}</h3>
 
           <div className="space-y-4">
             {/* Session Gap Threshold */}
@@ -906,7 +933,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Flat Contour Plot</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.flatContour')}</h3>
           <p className="text-xs text-content-muted mb-4">
             Defaults for the per-flat contour plot rendered in Blink (toolbar
             mountain icon). Values match PixInsight's <span className="font-mono">FlatContourPlot</span> v1.3.1
@@ -985,7 +1012,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Monitoring</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.monitoring')}</h3>
 
           <div className="space-y-4">
             {/* Global enable switch */}
@@ -1032,7 +1059,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Auto-merge</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.autoMerge')}</h3>
           <p className="text-xs text-content-muted mb-3">
             When enabled, new unclustered light frames that fall within the grouping
             threshold of an existing frame set are automatically attached to that set.
@@ -1080,7 +1107,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Blink Viewer</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.blinkViewer')}</h3>
 
           <div className="space-y-4">
             {/* Resolution */}
@@ -1262,7 +1289,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Star Annotation Display</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.starAnnotations')}</h3>
           <p className="text-xs text-content-muted mb-4">
             Configure how star annotations appear when toggled on in the Blink Viewer.
           </p>
@@ -1378,7 +1405,7 @@ export default function Settings() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Content index</h3>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.contentIndex')}</h3>
           <div className="p-4 bg-surface rounded-lg border border-border space-y-3">
             <p className="text-xs text-content-muted">
               A sampled content hash of every catalogued file — the first, middle and last
@@ -1487,7 +1514,7 @@ export default function Settings() {
               className="flex items-center gap-2 px-6 py-2 bg-accent hover:bg-accent-hover disabled:bg-surface-hover disabled:cursor-not-allowed text-surface rounded-lg transition-colors"
             >
               <Save size={18} />
-              {saving ? 'Saving...' : 'Save Settings'}
+              {saving ? t('settings.saving') : t('settings.save')}
             </button>
 
           </div>
@@ -1499,7 +1526,7 @@ export default function Settings() {
       <div className="mt-6 bg-surface-elevated rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <ArchiveIcon size={20} />
-          Archive
+          {t('settings.archive')}
         </h3>
         <p className="text-xs text-content-muted mb-4">
           Manage destination folders for archives in <span className="text-content">File Manager → Archive Folders</span>.
@@ -1528,7 +1555,7 @@ export default function Settings() {
         <div className="mt-6 bg-surface-elevated rounded-lg p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Info size={20} />
-            Data file locations
+            {t('settings.dataLocations')}
           </h3>
           <p className="text-sm text-content-muted mb-4">
             Where Athenaeum stores its catalog database and log files on disk. Click the
@@ -1571,7 +1598,7 @@ export default function Settings() {
       <div className="mt-6 bg-surface-elevated rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <ScrollText size={20} />
-          Logging
+          {t('settings.logging')}
         </h3>
         <p className="text-xs text-content-muted mb-4">
           Controls what gets written to the JSONL log file{isTauri ? ' shown above' : ''}. Debug is
@@ -1581,7 +1608,7 @@ export default function Settings() {
       </div>
 
       <div className="mt-6 bg-surface-elevated rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-3">About Frame Set Grouping</h3>
+        <h3 className="text-lg font-semibold mb-3">{t('settings.groupingAbout')}</h3>
         <div className="text-sm text-content-muted space-y-2">
           <p>
             Frame sets are automatically created by clustering LIGHT frames based on their sky

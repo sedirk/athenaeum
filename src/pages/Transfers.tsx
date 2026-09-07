@@ -10,6 +10,7 @@ import type { Direction } from '../types/models';
 import type { TransferRow as TransferRowModel } from '../hooks/useTransferQueue';
 import { useTransferQueue } from '../hooks/useTransferQueue';
 import { useTransferHistory } from '../hooks/useTransferHistory';
+import { useI18n } from '../i18n/I18nContext';
 
 /**
  * `/transfers` — the torrent-style master-detail Transfers view (Transfers
@@ -20,6 +21,7 @@ import { useTransferHistory } from '../hooks/useTransferHistory';
  * device names everywhere; hex only in the Details tab; `waiting` is benign.
  */
 export default function Transfers() {
+  const { t } = useI18n();
   const { rows, liveFiles, sendNow, cancelOutbound, cancelInbound, resend, deleteTransfer, busy } =
     useTransferQueue();
   const { groups, deviceNames, deviceKinds, projectNames, refetch, removeLocal } =
@@ -219,20 +221,20 @@ export default function Transfers() {
   }, [hasVisibleCountdown]);
 
   const chips: Array<{ key: TransferFilter; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'sending', label: 'Sending' },
-    { key: 'receiving', label: 'Receiving' },
-    { key: 'waiting', label: 'Waiting' },
-    { key: 'completed', label: 'Completed' },
-    { key: 'cancelled', label: 'Cancelled' },
-    { key: 'failed', label: 'Failed' },
+    { key: 'all', label: t('transfers.filter.all') },
+    { key: 'sending', label: t('transfers.filter.sending') },
+    { key: 'receiving', label: t('transfers.filter.receiving') },
+    { key: 'waiting', label: t('transfers.filter.waiting') },
+    { key: 'completed', label: t('transfers.filter.completed') },
+    { key: 'cancelled', label: t('transfers.filter.cancelled') },
+    { key: 'failed', label: t('transfers.filter.failed') },
   ];
 
   return (
     <div className="flex h-full flex-col p-4 pt-3">
       <div className="mb-3 flex shrink-0 items-center gap-2">
         <ArrowLeftRight size={22} className="text-accent" />
-        <h2 className="text-2xl font-bold">Transfers</h2>
+        <h2 className="text-2xl font-bold">{t('transfers.title')}</h2>
       </div>
 
       <AppDataWarningStrip />
