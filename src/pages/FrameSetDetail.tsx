@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n/I18nContext';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
@@ -38,6 +39,7 @@ type FrameSetTab = 'calibration' | 'analysis' | 'history' | 'export' | 'registra
 const REGISTRATION_ENABLED = import.meta.env.DEV;
 
 export default function FrameSetDetail() {
+  const { tx } = useI18n();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { backOr } = useNavHistory();
@@ -635,7 +637,7 @@ export default function FrameSetDetail() {
       <div className="p-6">
         <div className="text-center py-12 text-content-muted">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto"></div>
-          <p className="mt-4">Loading frame set details...</p>
+          <p className="mt-4">{tx("Loading frame set details...")}</p>
         </div>
       </div>
     );
@@ -650,14 +652,13 @@ export default function FrameSetDetail() {
             className="flex items-center gap-2 px-4 py-2 bg-surface-hover hover:bg-surface-hover rounded-lg transition"
           >
             <ArrowLeft size={18} />
-            Back to Objects
-          </button>
+            {tx("Back to Objects")}</button>
         </div>
         <div className="bg-error-muted border border-error/50 rounded-lg p-6">
           <div className="flex items-start gap-3">
             <AlertCircle size={20} className="text-error flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h3 className="text-error font-semibold mb-2">Error Loading Frame Set</h3>
+              <h3 className="text-error font-semibold mb-2">{tx("Error Loading Frame Set")}</h3>
               <p className="text-error/80 text-sm">{error}</p>
             </div>
           </div>
@@ -675,12 +676,10 @@ export default function FrameSetDetail() {
             className="flex items-center gap-2 px-4 py-2 bg-surface-hover hover:bg-surface-hover rounded-lg transition"
           >
             <ArrowLeft size={18} />
-            Back to Objects
-          </button>
+            {tx("Back to Objects")}</button>
         </div>
         <div className="bg-surface-elevated rounded-lg p-6 text-center text-content-muted">
-          No data available
-        </div>
+          {tx("No data available")}</div>
       </div>
     );
   }
@@ -697,8 +696,7 @@ export default function FrameSetDetail() {
               {detail.frames_set?.archived_at && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/20 text-warning text-xs font-medium">
                   <ArchiveIcon size={12} />
-                  Archived
-                </span>
+                  {tx("Archived")}</span>
               )}
             </div>
             {detail.frames_set?.objctra && detail.frames_set?.objctdec && (
@@ -744,12 +742,11 @@ export default function FrameSetDetail() {
                       alert(`Failed to load archive details: ${e}`);
                     }
                   }}
-                  title="Unarchive this frame set: extract files from the zip and bring it back to the active view"
+                  title={tx("Unarchive this frame set: extract files from the zip and bring it back to the active view")}
                   className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 text-accent px-3 py-1.5 text-sm hover:bg-accent/20"
                 >
                   <Upload size={14} />
-                  Unarchive
-                </button>
+                  {tx("Unarchive")}</button>
                 {isTauri && (
                   <button
                     type="button"
@@ -771,7 +768,7 @@ export default function FrameSetDetail() {
                         alert(`Failed to open file manager: ${e}`);
                       }
                     }}
-                    title="Reveal the archive zip(s) in the system file manager"
+                    title={tx("Reveal the archive zip(s) in the system file manager")}
                     className="flex items-center justify-center rounded-lg border border-border bg-surface-hover p-1.5 text-content-muted hover:text-content hover:brightness-110"
                   >
                     <FolderOpen size={14} />
@@ -783,11 +780,11 @@ export default function FrameSetDetail() {
                 type="button"
                 onClick={handleArchiveClick}
                 disabled={archiving}
-                title="Move this frame set's files into a zip archive"
+                title={tx("Move this frame set's files into a zip archive")}
                 className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ArchiveIcon size={14} />
-                {archiving ? 'Archiving…' : 'Move and ZIP'}
+                {archiving ? tx("Archiving…") : tx("Move and ZIP")}
               </button>
             ) : (
               <>
@@ -799,52 +796,51 @@ export default function FrameSetDetail() {
                   }
                   title={
                     !detail.frames_set?.objctra || !detail.frames_set?.objctdec
-                      ? 'No coordinates — nothing to match against'
-                      : 'Find new images for this object'
+                      ? tx("No coordinates — nothing to match against")
+                      : tx("Find new images for this object")
                   }
                   className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Search size={14} />
-                  {findNewBusy ? 'Merging…' : 'Find new images'}
+                  {findNewBusy ? tx("Merging…") : tx("Find new images")}
                 </button>
                 <button
                   type="button"
                   onClick={handleRecalculateNights}
                   disabled={recalcNightsBusy}
-                  title="Re-derive this set's nights and sessions from its frames (repairs a night stored as two)"
+                  title={tx("Re-derive this set's nights and sessions from its frames (repairs a night stored as two)")}
                   className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RotateCw size={14} className={recalcNightsBusy ? 'animate-spin' : ''} />
-                  {recalcNightsBusy ? 'Recalculating…' : 'Recalculate nights'}
+                  {recalcNightsBusy ? tx("Recalculating…") : tx("Recalculate nights")}
                 </button>
                 <button
                   type="button"
                   onClick={handleMoveToArchive}
                   disabled={movingToArchive}
-                  title="Move this frame set to the Archive tab. You can then zip it from there."
+                  title={tx("Move this frame set to the Archive tab. You can then zip it from there.")}
                   className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ArchiveIcon size={14} />
-                  {movingToArchive ? 'Moving…' : 'Move to Archive'}
+                  {movingToArchive ? tx("Moving…") : tx("Move to Archive")}
                 </button>
               </>
             )}
             <button
               onClick={() => void publishAsProject()}
-              title="Publish this frame set as a collaboration project on the portal"
+              title={tx("Publish this frame set as a collaboration project on the portal")}
               className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm text-content-secondary transition-colors hover:bg-surface-hover"
             >
               <Users size={14} />
-              Publish as project
-            </button>
+              {tx("Publish as project")}</button>
             <div className="flex items-center gap-1.5 text-sm text-content-muted">
-              <span><span className="font-medium text-content">{calibrationHierarchy?.total_frames ?? '-'}</span> frames</span>
+              <span><span className="font-medium text-content">{calibrationHierarchy?.total_frames ?? '-'}</span>  {tx("frames")}</span>
               <span>·</span>
-              <span><span className="font-medium text-success">{calibrationHierarchy?.calibrated_frames ?? '-'}</span> calibrated</span>
+              <span><span className="font-medium text-success">{calibrationHierarchy?.calibrated_frames ?? '-'}</span>  {tx("calibrated")}</span>
               <span>·</span>
-              <span><span className="font-medium text-warning">{calibrationHierarchy?.uncalibrated_frames ?? '-'}</span> uncalibrated</span>
+              <span><span className="font-medium text-warning">{calibrationHierarchy?.uncalibrated_frames ?? '-'}</span>  {tx("uncalibrated")}</span>
               <span>·</span>
-              <span><span className="font-medium text-accent">{calibrationHierarchy?.date_groups.length ?? '-'}</span> sessions</span>
+              <span><span className="font-medium text-accent">{calibrationHierarchy?.date_groups.length ?? '-'}</span>  {tx("sessions")}</span>
               <span>·</span>
               <span className="font-medium text-content">{formatExposureTime(detail.frames_set?.total_exp_time)}</span>
             </div>
@@ -892,7 +888,7 @@ export default function FrameSetDetail() {
               }`}
             >
               <Icon size={16} />
-              {label}
+              {tx(label)}
             </button>
           );
         })}
@@ -903,7 +899,7 @@ export default function FrameSetDetail() {
         {loadingCalibration ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
-            <p className="text-content-muted">Loading calibration data...</p>
+            <p className="text-content-muted">{tx("Loading calibration data...")}</p>
           </div>
         ) : calibrationHierarchy ? (
           activeTab === 'history' ? (
@@ -952,13 +948,12 @@ export default function FrameSetDetail() {
           )
         ) : (
           <div className="text-center py-12 text-content-muted">
-            <p>Failed to load calibration data.</p>
+            <p>{tx("Failed to load calibration data.")}</p>
             <button
               onClick={handleDeleteClick}
               className="mt-4 px-4 py-2 bg-error hover:brightness-90 text-white rounded-lg transition"
             >
-              Delete Frame Set
-            </button>
+              {tx("Delete Frame Set")}</button>
           </div>
         )}
       </div>
@@ -967,24 +962,23 @@ export default function FrameSetDetail() {
       {showCreateDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-surface-elevated rounded-lg max-w-md w-full p-6 border border-border">
-            <h3 className="text-xl font-bold mb-4">Create Custom Set</h3>
+            <h3 className="text-xl font-bold mb-4">{tx("Create Custom Set")}</h3>
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Set Name
-              </label>
+                {tx("Set Name")}</label>
               <input
                 type="text"
                 value={customSetName}
                 onChange={(e) => setCustomSetName(e.target.value)}
-                placeholder="Enter custom set name"
+                placeholder={tx("Enter custom set name")}
                 className="w-full px-3 py-2 bg-surface-hover text-content rounded-lg border border-border focus:outline-none focus:border-accent"
                 autoFocus
               />
             </div>
 
             <div className="mb-6 text-sm text-content-muted">
-              {selectedFrameIds.length} frame{selectedFrameIds.length !== 1 ? 's' : ''} will be included in the new set
+              {selectedFrameIds.length}  {tx("frame")}{selectedFrameIds.length !== 1 ? tx("s") : ''} will be included in the new set
             </div>
 
             <div className="flex gap-3 justify-end">
@@ -995,14 +989,13 @@ export default function FrameSetDetail() {
                 }}
                 className="px-4 py-2 bg-surface-hover hover:bg-surface-hover rounded-lg transition"
               >
-                Cancel
-              </button>
+                {tx("Cancel")}</button>
               <button
                 onClick={handleCreateCustomSet}
                 disabled={creating || !customSetName.trim()}
                 className="px-4 py-2 bg-success hover:brightness-90 disabled:bg-surface-hover disabled:cursor-not-allowed text-white rounded-lg transition"
               >
-                {creating ? 'Creating...' : 'Create'}
+                {creating ? tx("Creating...") : tx("Create")}
               </button>
             </div>
           </div>
@@ -1015,25 +1008,23 @@ export default function FrameSetDetail() {
           <div className="bg-surface-elevated rounded-lg max-w-md w-full p-6 border border-border">
             <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
               <Scissors size={20} className="text-accent" />
-              Split Frame Set
-            </h3>
+              {tx("Split Frame Set")}</h3>
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                New Set Name
-              </label>
+                {tx("New Set Name")}</label>
               <input
                 type="text"
                 value={splitName}
                 onChange={(e) => setSplitName(e.target.value)}
-                placeholder="Enter name for split set"
+                placeholder={tx("Enter name for split set")}
                 className="w-full px-3 py-2 bg-surface-hover text-content rounded-lg border border-border focus:outline-none focus:border-accent"
                 autoFocus
               />
             </div>
 
             <div className="mb-6 text-sm text-content-muted space-y-2">
-              <p>{selectedFrameIds.length} frame{selectedFrameIds.length !== 1 ? 's' : ''} will be split into the new set</p>
+              <p>{selectedFrameIds.length}  {tx("frame")}{selectedFrameIds.length !== 1 ? tx("s") : ''} will be split into the new set</p>
               <p className="text-warning">
                 The selected frames will be removed from "{detail?.frames_set?.name || 'this set'}" and moved to the new set.
               </p>
@@ -1047,14 +1038,13 @@ export default function FrameSetDetail() {
                 }}
                 className="px-4 py-2 bg-surface-hover hover:bg-surface-hover rounded-lg transition"
               >
-                Cancel
-              </button>
+                {tx("Cancel")}</button>
               <button
                 onClick={handleSplit}
                 disabled={splitting || !splitName.trim()}
                 className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:bg-surface-hover disabled:cursor-not-allowed text-white rounded-lg transition"
               >
-                {splitting ? 'Splitting...' : 'Split'}
+                {splitting ? tx("Splitting...") : tx("Split")}
               </button>
             </div>
           </div>
@@ -1079,11 +1069,11 @@ export default function FrameSetDetail() {
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={showDeleteConfirm}
-        title="Delete Frame Set"
+        title={tx("Delete Frame Set")}
         message="Delete this frame set? You can recreate it using 'Auto-Generate Sets'."
         onConfirm={confirmDelete}
         onCancel={() => setShowDeleteConfirm(false)}
-        confirmText="Delete"
+        confirmText={tx("Delete")}
         confirmDanger={true}
       />
 

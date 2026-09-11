@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useEffect, useState } from 'react';
 import { Archive as ArchiveIcon, Star, ExternalLink } from 'lucide-react';
 import { listArchiveZips } from '../../api/archive';
@@ -16,6 +17,7 @@ interface ArchiveInspectorProps {
 }
 
 export function ArchiveInspector({ root, archivedSets, totalZipBytes, onSetDefault, onRemove }: ArchiveInspectorProps) {
+  const { tx } = useI18n();
   const sets = archivedSets.filter((s) => (s.archive_root_path ?? '') === root.path);
   const [zipsBySet, setZipsBySet] = useState<Record<number, ArchiveZip[]>>({});
   const [zipsError, setZipsError] = useState<string | null>(null);
@@ -53,31 +55,30 @@ export function ArchiveInspector({ root, archivedSets, totalZipBytes, onSetDefau
           <div className="flex items-center gap-2 text-lg font-bold text-content">
             <span className="truncate">{basename(root.path)}</span>
             {root.is_default
-              ? <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning/20 text-warning border border-warning/40 flex items-center gap-1"><Star size={10} fill="currentColor" /> Default destination</span>
-              : <button onClick={onSetDefault} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-surface-hover text-content-muted border border-border hover:text-warning transition flex items-center gap-1"><Star size={10} /> Make default</button>}
+              ? <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning/20 text-warning border border-warning/40 flex items-center gap-1"><Star size={10} fill="currentColor" />  {tx("Default destination")}</span>
+              : <button onClick={onSetDefault} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-surface-hover text-content-muted border border-border hover:text-warning transition flex items-center gap-1"><Star size={10} />  {tx("Make default")}</button>}
           </div>
           <div className="flex items-center gap-2 font-mono text-xs text-content-muted">
             <span className="truncate" title={root.path}>{root.path}</span>
             {isTauri && (
               <button onClick={() => revealItemInDir(root.path).catch((e) => console.error('[ArchiveInspector] reveal failed:', e))}
-                title="Reveal in file manager" aria-label="Reveal in file manager" className="p-0.5 rounded hover:text-accent transition"><ExternalLink size={12} /></button>
+                title={tx("Reveal in file manager")} aria-label={tx("Reveal in file manager")} className="p-0.5 rounded hover:text-accent transition"><ExternalLink size={12} /></button>
             )}
           </div>
         </div>
       </div>
 
       <div className="mt-4 p-3 rounded-lg bg-surface border border-warning/40 text-xs text-content-muted">
-        &ldquo;Move and ZIP&rdquo; writes finished frame sets here. Never scanned — it may live anywhere, even inside a monitored folder.
-      </div>
+        {tx("“Move and ZIP” writes finished frame sets here. Never scanned — it may live anywhere, even inside a monitored folder.")}</div>
 
       <div className="flex flex-wrap gap-2 mt-3">
-        <Stat label="archived frame sets" value={String(sets.length)} />
+        <Stat label={tx("archived frame sets")} value={String(sets.length)} />
         <Stat label="frame-set zips" value={totalZipBytes > 0 ? formatBytes(totalZipBytes) : '—'} />
       </div>
 
-      <Section title="Contents">
-        {sets.length === 0 && <p className="text-xs text-content-muted">No archived frame sets stored in this folder yet.</p>}
-        {zipsError && <p className="text-xs text-error mb-2 break-all">Some zip lists could not be loaded — {zipsError}</p>}
+      <Section title={tx("Contents")}>
+        {sets.length === 0 && <p className="text-xs text-content-muted">{tx("No archived frame sets stored in this folder yet.")}</p>}
+        {zipsError && <p className="text-xs text-error mb-2 break-all">{tx("Some zip lists could not be loaded —")} {zipsError}</p>}
         <div className="space-y-2">
           {sets.map((set) => {
             const zips = set.operation_id ? zipsBySet[set.operation_id] : undefined;
@@ -95,10 +96,10 @@ export function ArchiveInspector({ root, archivedSets, totalZipBytes, onSetDefau
                       <li key={z.path} className="flex items-center gap-2 text-xs">
                         <span className="font-mono text-content-muted truncate flex-1">{z.filename}</span>
                         <span className="text-content-muted whitespace-nowrap">{formatBytes(z.size_bytes)}</span>
-                        {!z.exists && <span className="text-error whitespace-nowrap">missing</span>}
+                        {!z.exists && <span className="text-error whitespace-nowrap">{tx("missing")}</span>}
                         {isTauri && z.exists && (
                           <button onClick={() => revealItemInDir(z.path).catch((e) => console.error('[ArchiveInspector] reveal failed:', e))}
-                            title="Reveal in file manager" aria-label="Reveal in file manager" className="p-0.5 rounded text-content-muted hover:text-accent transition"><ExternalLink size={11} /></button>
+                            title={tx("Reveal in file manager")} aria-label={tx("Reveal in file manager")} className="p-0.5 rounded text-content-muted hover:text-accent transition"><ExternalLink size={11} /></button>
                         )}
                       </li>
                     ))}
@@ -110,10 +111,10 @@ export function ArchiveInspector({ root, archivedSets, totalZipBytes, onSetDefau
         </div>
       </Section>
 
-      <Section title="Remove">
+      <Section title={tx("Remove")}>
         <div className="flex items-center gap-3 p-3 rounded-lg border border-error/30 bg-surface">
-          <p className="flex-1 text-xs text-content-muted">Removes it from this list only — zips on disk stay.</p>
-          <button onClick={onRemove} className="shrink-0 px-3 py-1.5 rounded-lg border border-error/50 text-error text-sm hover:bg-error-muted transition">Remove…</button>
+          <p className="flex-1 text-xs text-content-muted">{tx("Removes it from this list only — zips on disk stay.")}</p>
+          <button onClick={onRemove} className="shrink-0 px-3 py-1.5 rounded-lg border border-error/50 text-error text-sm hover:bg-error-muted transition">{tx("Remove…")}</button>
         </div>
       </Section>
     </div>

@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useEffect, useState } from 'react';
 import { RefreshCw, ExternalLink, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, Loader2, CheckCircle2, Info } from 'lucide-react';
 import { revealItemInDir } from '../../api/desktop';
@@ -54,6 +55,7 @@ function pathFromScanError(message: string): string | null {
 }
 
 export function MonitoredInspector(props: MonitoredInspectorProps) {
+  const { tx } = useI18n();
   const { root, overview, missingCount, scanResult, isScanning, relinking, relinkResult, removing } =
     props;
   const offline = !root.is_available;
@@ -73,13 +75,13 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-lg font-bold text-content">
             <span className="truncate">{basename(root.path)}</span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-surface-hover text-content-muted border border-border">Monitored</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-surface-hover text-content-muted border border-border">{tx("Monitored")}</span>
           </div>
           <div className="flex items-center gap-2 font-mono text-xs text-content-muted">
             <span className="truncate" title={root.path}>{root.path}</span>
             {isTauri && !offline && (
               <button onClick={() => revealItemInDir(root.path).catch((e) => console.error('[MonitoredInspector] reveal failed:', e))}
-                title="Reveal in file manager" aria-label="Reveal in file manager" className="p-0.5 rounded hover:text-accent transition"><ExternalLink size={12} /></button>
+                title={tx("Reveal in file manager")} aria-label={tx("Reveal in file manager")} className="p-0.5 rounded hover:text-accent transition"><ExternalLink size={12} /></button>
             )}
           </div>
         </div>
@@ -87,11 +89,11 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
           <div className="flex gap-2 shrink-0">
             <button onClick={props.onScan} disabled={isScanning || relinking}
               className="flex items-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-surface font-semibold rounded-lg text-sm transition disabled:opacity-50">
-              <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} /> {isScanning ? 'Scanning…' : 'Scan now'}
+              <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} /> {isScanning ? tx("Scanning…") : tx("Scan now")}
             </button>
             <button onClick={props.onRelink} disabled={isScanning || relinking}
               className="px-3 py-2 bg-surface-hover hover:brightness-110 rounded-lg text-sm text-content transition disabled:opacity-50">
-              {relinking ? 'Relinking…' : 'Relink…'}
+              {relinking ? tx("Relinking…") : tx("Relink…")}
             </button>
           </div>
         )}
@@ -102,16 +104,13 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
         <div className="mt-4 p-4 bg-error-muted border border-error/50 rounded-lg flex items-start gap-3">
           <AlertTriangle className="text-error shrink-0 mt-0.5" size={18} />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-error">Folder not reachable</p>
+            <p className="text-sm font-semibold text-error">{tx("Folder not reachable")}</p>
             <p className="text-xs text-error/80 mt-0.5 mb-2">
-              Drive unmounted, renamed or moved. The catalog still remembers all
-              {overview ? ` ${overview.file_count.toLocaleString()}` : ''} files — Relink points them to the new location;
-              frame sets, calibration links and tags survive.
-            </p>
+              {tx("Drive unmounted, renamed or moved. The catalog still remembers all")}{overview ? ` ${overview.file_count.toLocaleString()}` : ''}  {tx("files — Relink points them to the new location; frame sets, calibration links and tags survive.")}</p>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={props.onRelink} disabled={relinking || isScanning}
                 className="flex items-center gap-2 px-3 py-1.5 bg-error hover:brightness-90 text-surface rounded text-sm transition disabled:opacity-50">
-                <RefreshCw size={14} className={relinking ? 'animate-spin' : ''} /> {relinking ? 'Relinking…' : 'Relink — point to new location…'}
+                <RefreshCw size={14} className={relinking ? 'animate-spin' : ''} /> {relinking ? tx("Relinking…") : tx("Relink — point to new location…")}
               </button>
               {/* A drive that simply came back needs no relink — its path never
                   changed. Before this button the only way to re-detect it was
@@ -125,44 +124,44 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
       {/* Relink result */}
       {relinkResult && (
         <div className="mt-4 p-4 bg-surface rounded-lg border border-border">
-          <h4 className="text-sm font-semibold text-content flex items-center gap-2 mb-2"><CheckCircle2 className="text-success" size={16} /> Relinking complete</h4>
+          <h4 className="text-sm font-semibold text-content flex items-center gap-2 mb-2"><CheckCircle2 className="text-success" size={16} />  {tx("Relinking complete")}</h4>
           <div className="grid grid-cols-3 gap-4 text-sm">
-            <div><p className="text-content-muted text-xs">Matched</p><p className="text-lg font-bold text-success">{relinkResult.files_matched}</p></div>
-            <div><p className="text-content-muted text-xs">New files</p><p className="text-lg font-bold text-accent">{relinkResult.files_new}</p></div>
-            <div><p className="text-content-muted text-xs">Orphaned</p><p className="text-lg font-bold text-warning">{relinkResult.files_orphaned}</p></div>
+            <div><p className="text-content-muted text-xs">{tx("Matched")}</p><p className="text-lg font-bold text-success">{relinkResult.files_matched}</p></div>
+            <div><p className="text-content-muted text-xs">{tx("New files")}</p><p className="text-lg font-bold text-accent">{relinkResult.files_new}</p></div>
+            <div><p className="text-content-muted text-xs">{tx("Orphaned")}</p><p className="text-lg font-bold text-warning">{relinkResult.files_orphaned}</p></div>
           </div>
         </div>
       )}
 
       {/* Stats */}
       <div className="flex flex-wrap gap-2 mt-4">
-        <Stat label="files cataloged" value={overview ? overview.file_count.toLocaleString() : '—'} />
-        <Stat label="on disk" value={overview ? formatBytes(overview.total_bytes) : '—'} />
-        <Stat label="last scan" value={root.last_scan ? formatTimestamp(root.last_scan) : 'never'} />
-        <Stat label="watching" value={root.monitor_enabled ? 'background interval' : 'manual only'} />
+        <Stat label={tx("files cataloged")} value={overview ? overview.file_count.toLocaleString() : '—'} />
+        <Stat label={tx("on disk")} value={overview ? formatBytes(overview.total_bytes) : '—'} />
+        <Stat label={tx("last scan")} value={root.last_scan ? formatTimestamp(root.last_scan) : tx("never")} />
+        <Stat label={tx("watching")} value={root.monitor_enabled ? tx("background interval") : tx("manual only")} />
       </div>
 
       {/* Last scan result strip */}
       {scanResult && (
         <div className="mt-3 p-3 bg-success-muted border border-success/50 rounded-lg flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2 text-success font-semibold"><CheckCircle2 size={14} /> Scan complete — {scanResult.files_processed} processed</span>
-          <button onClick={props.onShowScanDetails} title="View scan details" className="p-1 rounded hover:bg-surface-hover transition"><Info size={14} className="text-content-muted" /></button>
+          <span className="flex items-center gap-2 text-success font-semibold"><CheckCircle2 size={14} />  {tx("Scan complete —")} {scanResult.files_processed}  {tx("processed")}</span>
+          <button onClick={props.onShowScanDetails} title={tx("View scan details")} className="p-1 rounded hover:bg-surface-hover transition"><Info size={14} className="text-content-muted" /></button>
         </div>
       )}
 
       {!offline && (
-        <Section title="Behavior">
-          <SwitchRow title="Watch for new files" checked={root.monitor_enabled} onChange={props.onToggleMonitor}
+        <Section title={tx("Behavior")}>
+          <SwitchRow title={tx("Watch for new files")} checked={root.monitor_enabled} onChange={props.onToggleMonitor}
             description="Re-scan this folder periodically in the background. The interval is global — Settings → Scanning." />
-          <SwitchRow title="Include in duplicate detection" checked={root.find_duplicates} onChange={props.onToggleDuplicates}
+          <SwitchRow title={tx("Include in duplicate detection")} checked={root.find_duplicates} onChange={props.onToggleDuplicates}
             description="Files here are content-hashed and compared against every other folder with this enabled." />
-          <SwitchRow title="Treat camera as unique to this folder" checked={root.unique_camera} onChange={props.onToggleUniqueCamera}
+          <SwitchRow title={tx("Treat camera as unique to this folder")} checked={root.unique_camera} onChange={props.onToggleUniqueCamera}
             description="Two rigs with the same camera model? Keeps their calibration frames apart. Takes effect after the next scan." />
         </Section>
       )}
 
       {(showMissing || displayErrors.length > 0) && (
-        <Section title="Needs attention">
+        <Section title={tx("Needs attention")}>
           <div className="space-y-2">
             {showMissing && root.id != null && (
               <MissingFilesDisclosure rootId={root.id} missingCount={missingCount} onMissingChanged={props.onMissingChanged} />
@@ -173,8 +172,7 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
                   aria-expanded={errorsOpen} aria-controls={`scan-errors-panel-${root.id ?? 'unsaved'}`}
                   className="w-full flex items-center gap-2 p-2.5 text-left text-sm text-error hover:bg-error-muted rounded-lg transition">
                   {errorsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <AlertCircle size={14} /> {displayErrors.length} file{displayErrors.length !== 1 ? 's' : ''} failed in last scan
-                </button>
+                  <AlertCircle size={14} /> {displayErrors.length}  {tx("file")}{displayErrors.length !== 1 ? tx("s") : ''}  {tx("failed in last scan")}</button>
                 {errorsOpen && (
                   <div id={`scan-errors-panel-${root.id ?? 'unsaved'}`} className="px-3 py-2 max-h-40 overflow-y-auto space-y-1">
                     {displayErrors.map((err, i) => {
@@ -185,7 +183,7 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
                           {isTauri && !offline && errPath && (
                             <button
                               onClick={() => revealItemInDir(errPath).catch((e) => console.error('[MonitoredInspector] reveal failed:', e))}
-                              title="Reveal in file manager" aria-label="Reveal in file manager"
+                              title={tx("Reveal in file manager")} aria-label={tx("Reveal in file manager")}
                               className="shrink-0 mt-0.5 p-0.5 rounded text-content-muted hover:text-accent transition"
                             >
                               <ExternalLink size={12} />
@@ -202,16 +200,16 @@ export function MonitoredInspector(props: MonitoredInspectorProps) {
         </Section>
       )}
 
-      <Section title="Remove">
+      <Section title={tx("Remove")}>
         <div className="flex items-center gap-3 p-3 rounded-lg border border-error/30 bg-surface">
           <p className="flex-1 text-xs text-content-muted">
-            Forgets the folder and its catalog entries (frames, the sets they belong to).{' '}
-            <span className="font-semibold text-content">Files on disk are never touched.</span>
+            {tx("Forgets the folder and its catalog entries (frames, the sets they belong to).")}{' '}
+            <span className="font-semibold text-content">{tx("Files on disk are never touched.")}</span>
           </p>
           <button onClick={props.onRemove} disabled={removing}
             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-error/50 text-error text-sm hover:bg-error-muted transition disabled:opacity-60 disabled:cursor-not-allowed">
             {removing && <Loader2 size={14} className="animate-spin" />}
-            {removing ? 'Removing…' : 'Remove folder…'}
+            {removing ? tx("Removing…") : tx("Remove folder…")}
           </button>
         </div>
       </Section>

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { translations, type Locale, type TranslationKey } from './translations';
+import chineseCopy from './ui.zh-CN.json';
 
 const STORAGE_KEY = 'athenaeum.ui.locale.v1';
 
@@ -9,6 +10,7 @@ interface I18nValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   t: (key: TranslationKey, params?: TranslationParams) => string;
+  tx: (english: string, params?: TranslationParams) => string;
 }
 
 const I18nContext = createContext<I18nValue | null>(null);
@@ -51,7 +53,17 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     });
   }, [locale]);
 
-  const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
+  // Source-copy keys keep incremental translations close to upstream wording.
+  // Unknown copy falls back to English; placeholders are interpolated once.
+  const tx = useCallback((english: string, params?: TranslationParams) => {
+    const dictionary: Record<string, string> = chineseCopy;
+    const template = locale === 'zh-CN' && Object.prototype.hasOwnProperty.call(dictionary, english)
+      ? dictionary[english] : english;
+    return params ? template.replace(/\{(\w+)\}/g, (match, name: string) =>
+      params[name] === undefined ? match : String(params[name])) : template;
+  }, [locale]);
+
+  const value = useMemo(() => ({ locale, setLocale, t, tx }), [locale, setLocale, t, tx]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { ClusteringConfig, ScoringConfig } from "../../types/calibration-config";
 
 interface ClusteringParametersPanelProps {
@@ -27,6 +28,7 @@ export default function ClusteringParametersPanel({
   onClusteringUpdate,
   onScoringUpdate,
 }: ClusteringParametersPanelProps) {
+  const { tx } = useI18n();
   const getClusteringConfig = (type: string): ClusteringConfig => {
     // Defaults: flat = 30 days max age, 30 min cluster; dark/bias/darkflat = 365 days max age, 30 days cluster
     const isFlat = type === "flat";
@@ -40,24 +42,19 @@ export default function ClusteringParametersPanel({
       {/* Clustering per calibration type */}
       <div>
         <h4 className="text-sm font-medium text-content-secondary mb-4">
-          Clustering Settings per Calibration Type
-        </h4>
+          {tx("Clustering Settings per Calibration Type")}</h4>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="bg-surface-hover/50">
                 <th className="p-3 border border-border text-left font-medium">
-                  Calibration Type
-                </th>
+                  {tx("Calibration Type")}</th>
                 <th className="p-3 border border-border text-center font-medium">
-                  Max Age (days)
-                </th>
+                  {tx("Max Age (days)")}</th>
                 <th className="p-3 border border-border text-center font-medium">
-                  Time Cluster
-                </th>
+                  {tx("Time Cluster")}</th>
                 <th className="p-3 border border-border text-center font-medium">
-                  Temp Threshold (°C)
-                </th>
+                  {tx("Temp Threshold (°C)")}</th>
               </tr>
             </thead>
             <tbody>
@@ -66,7 +63,7 @@ export default function ClusteringParametersPanel({
                 return (
                   <tr key={type} className="hover:bg-surface-hover/30">
                     <td className="p-3 border border-border font-medium capitalize">
-                      {type === "darkflat" ? "DarkFlat" : type}
+                      {type === "darkflat" ? tx("DarkFlat") : type}
                     </td>
                     <td className="p-3 border border-border">
                       <input
@@ -103,7 +100,7 @@ export default function ClusteringParametersPanel({
                           className="flex-1 px-3 py-1 bg-surface-hover border border-border rounded text-content text-center"
                         />
                         <span className="text-xs text-content-muted w-12">
-                          {usesDaysForTimeCluster(type) ? "days" : "min"}
+                          {usesDaysForTimeCluster(type) ? tx("days") : "min"}
                         </span>
                       </div>
                     </td>
@@ -130,31 +127,23 @@ export default function ClusteringParametersPanel({
           </table>
         </div>
         <p className="text-xs text-content-muted mt-2">
-          <strong>Max Age</strong> = Only consider frames within this many days
-          |{" "}
-          <strong>Time Cluster</strong> = Group frames captured within this time
-          window (minutes for Flats, days for Darks/Bias/DarkFlats)
-          |{" "}
-          <strong>Temp Threshold</strong> = Split cluster if temperature differs by more than this value
-        </p>
+          <strong>{tx("Max Age")}</strong>  {tx("= Only consider frames within this many days |")}{" "}
+          <strong>{tx("Time Cluster")}</strong>  {tx("= Group frames captured within this time window (minutes for Flats, days for Darks/Bias/DarkFlats) |")}{" "}
+          <strong>{tx("Temp Threshold")}</strong>  {tx("= Split cluster if temperature differs by more than this value")}</p>
       </div>
 
       {/* Scoring parameters */}
       <div>
         <h4 className="text-sm font-medium text-content-secondary mb-4">
-          Scoring Parameters
-        </h4>
+          {tx("Scoring Parameters")}</h4>
         <p className="text-xs text-content-muted mb-4">
-          When linking calibration sets to frames, candidates are scored based on date proximity, temperature match, and exposure time proximity.
-          These settings control how temperature and exposure time affect the scoring.
-        </p>
+          {tx("When linking calibration sets to frames, candidates are scored based on date proximity, temperature match, and exposure time proximity. These settings control how temperature and exposure time affect the scoring.")}</p>
         <div className="bg-surface-elevated/50 rounded-lg p-4 space-y-4">
           {/* Temperature Match Weight */}
           <div>
             <div className="flex items-center gap-4">
               <label className="text-sm text-content-secondary min-w-48">
-                Temperature Match Weight
-              </label>
+                {tx("Temperature Match Weight")}</label>
               <input
                 type="range"
                 min="0"
@@ -174,16 +163,14 @@ export default function ClusteringParametersPanel({
               </span>
             </div>
             <p className="text-xs text-content-muted mt-1">
-              How much temperature affects the score (0 = ignore temperature, 1 = full weight). Default: 0.3
-            </p>
+              {tx("How much temperature affects the score (0 = ignore temperature, 1 = full weight). Default: 0.3")}</p>
           </div>
 
           {/* Temperature Scale */}
           <div>
             <div className="flex items-center gap-4">
               <label className="text-sm text-content-secondary min-w-48">
-                Temperature Sensitivity (°C)
-              </label>
+                {tx("Temperature Sensitivity (°C)")}</label>
               <input
                 type="range"
                 min="1"
@@ -203,16 +190,14 @@ export default function ClusteringParametersPanel({
               </span>
             </div>
             <p className="text-xs text-content-muted mt-1">
-              At this temperature difference, the temp score drops to 50%. Higher = more tolerant. Default: 2.0°C
-            </p>
+              {tx("At this temperature difference, the temp score drops to 50%. Higher = more tolerant. Default: 2.0°C")}</p>
           </div>
 
           {/* Exposure Match Weight */}
           <div>
             <div className="flex items-center gap-4">
               <label className="text-sm text-content-secondary min-w-48">
-                Exposure Match Weight
-              </label>
+                {tx("Exposure Match Weight")}</label>
               <input
                 type="range"
                 min="0"
@@ -232,16 +217,14 @@ export default function ClusteringParametersPanel({
               </span>
             </div>
             <p className="text-xs text-content-muted mt-1">
-              How much exposure time affects the score (0 = ignore, 1 = full weight). Default: 0.4
-            </p>
+              {tx("How much exposure time affects the score (0 = ignore, 1 = full weight). Default: 0.4")}</p>
           </div>
 
           {/* Exposure Scale */}
           <div>
             <div className="flex items-center gap-4">
               <label className="text-sm text-content-secondary min-w-48">
-                Exposure Sensitivity (s)
-              </label>
+                {tx("Exposure Sensitivity (s)")}</label>
               <input
                 type="range"
                 min="0.5"
@@ -261,8 +244,7 @@ export default function ClusteringParametersPanel({
               </span>
             </div>
             <p className="text-xs text-content-muted mt-1">
-              At this exposure difference, the exposure score drops to 50%. Higher = more tolerant. Default: 1.0s
-            </p>
+              {tx("At this exposure difference, the exposure score drops to 50%. Higher = more tolerant. Default: 1.0s")}</p>
           </div>
         </div>
       </div>

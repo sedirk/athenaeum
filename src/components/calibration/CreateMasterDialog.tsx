@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState, useEffect, useMemo } from 'react';
 import { X, Hammer, AlertTriangle, Loader2, XCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../../api';
@@ -191,6 +192,7 @@ function basename(path: string): string {
 const MIN_MASTER_FRAMES = 3;
 
 export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps) {
+  const { tx } = useI18n();
   const { startBuild, startBatch } = useMasterBuildContext();
   const { notify } = useNotifications();
   const single = setIds.length === 1;
@@ -570,24 +572,24 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
         </div>
 
         {/* Recipe — two-axis (spec §4): Combination × Rejection algorithm */}
-        <label className="block text-xs text-content-muted mb-1">Combination</label>
+        <label className="block text-xs text-content-muted mb-1">{tx("Combination")}</label>
         <select value={combination} onChange={e => setCombination(e.target.value as CombinationChoice)}
                 className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm mb-2">
-          <option value="auto">Auto (recommended — per type & frame count)</option>
-          <option value="average">Average</option>
-          <option value="median">Median</option>
+          <option value="auto">{tx("Auto (recommended — per type & frame count)")}</option>
+          <option value="average">{tx("Average")}</option>
+          <option value="median">{tx("Median")}</option>
         </select>
 
         {combination !== 'auto' && (
           <>
-            <label className="block text-xs text-content-muted mb-1">Rejection algorithm</label>
+            <label className="block text-xs text-content-muted mb-1">{tx("Rejection algorithm")}</label>
             <select value={rejection} onChange={e => setRejection(e.target.value as RejectionChoice)}
                     className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm mb-2">
-              <option value="none">No rejection</option>
-              <option value="percentile_clip">Percentile clipping</option>
-              <option value="sigma_clip">Sigma clipping</option>
-              <option value="winsorized_sigma">Winsorized sigma clipping</option>
-              <option value="linear_fit_clip">Linear fit clipping</option>
+              <option value="none">{tx("No rejection")}</option>
+              <option value="percentile_clip">{tx("Percentile clipping")}</option>
+              <option value="sigma_clip">{tx("Sigma clipping")}</option>
+              <option value="winsorized_sigma">{tx("Winsorized sigma clipping")}</option>
+              <option value="linear_fit_clip">{tx("Linear fit clipping")}</option>
             </select>
 
             {rejection === 'percentile_clip' && (
@@ -615,16 +617,14 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
         {showSyntheticBias && (
           <>
             <label className="block text-xs text-content-muted mb-1 mt-2">
-              Synthetic bias for flats (ADU, optional — used only when no darkflat/dark/bias master is linked)
-            </label>
+              {tx("Synthetic bias for flats (ADU, optional — used only when no darkflat/dark/bias master is linked)")}</label>
             <input value={syntheticBias} onChange={e => setSyntheticBias(e.target.value)} placeholder="e.g. 500"
                    className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm mb-2" />
           </>
         )}
         <label className="flex items-center gap-2 text-sm text-content-secondary mb-3">
           <input type="checkbox" checked={archiveAfter} onChange={e => setArchiveAfter(e.target.checked)} />
-          Archive originals to zip after the master is built
-        </label>
+          {tx("Archive originals to zip after the master is built")}</label>
 
         {/* Preview (single-set only) — same visual language as the batch
             rows below: type badge + id + frame count header, short-form
@@ -639,14 +639,14 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
                 {preview.imagetyp}
               </span>
               <span className="font-mono text-content-muted shrink-0">#{preview.setId}</span>
-              <span className="text-content-secondary shrink-0">× {preview.frameCount} frames</span>
+              <span className="text-content-secondary shrink-0">× {preview.frameCount}  {tx("frames")}</span>
             </div>
-            <div><span className="text-content-muted">Method:</span> <span className="text-content">{formatCombine(preview.resolvedCombine)}</span></div>
+            <div><span className="text-content-muted">{tx("Method:")}</span> <span className="text-content">{formatCombine(preview.resolvedCombine)}</span></div>
             {preview.flatPrecal && (
-              <div className="text-content-muted">Flat pre-cal: {preview.flatPrecal}</div>
+              <div className="text-content-muted">{tx("Flat pre-cal:")} {preview.flatPrecal}</div>
             )}
             <div className="flex items-center gap-1">
-              <span className="text-content-muted shrink-0">Target:</span>
+              <span className="text-content-muted shrink-0">{tx("Target:")}</span>
               <span className="font-mono text-content truncate flex-1 min-w-0" title={preview.targetPath}>
                 {basename(preview.targetPath)}
               </span>
@@ -662,7 +662,7 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
         {/* "Build raw sub-cal masters first" (single-set, flat-precal-hits-raw only) */}
         {single && preview && preview.rawPrecalSets.length > 0 && (
           <div className="bg-surface rounded p-2.5 border border-border text-xs space-y-1.5 mb-3">
-            <div className="text-content-secondary font-medium">Build raw sub-cal masters first</div>
+            <div className="text-content-secondary font-medium">{tx("Build raw sub-cal masters first")}</div>
             {preview.rawPrecalSets.map(c => {
               const tooFewFrames = c.frameCount < MIN_MASTER_FRAMES;
               return (
@@ -679,21 +679,19 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
                     })}
                   />
                   <span className={tooFewFrames ? 'text-content-muted' : 'text-content'}>
-                    Build{' '}
+                    {tx("Build")}{' '}
                     <span className={`font-mono text-[10px] font-bold rounded px-1 py-0.5 ${typeBadgeClass(c.calType)}`}>
                       {c.calType}
                     </span>{' '}
-                    master from set #{c.setId} first (× {c.frameCount} frames)
-                    {tooFewFrames && (
-                      <span className="text-content-muted"> (only {c.frameCount} frames — minimum {MIN_MASTER_FRAMES})</span>
+                    master from set #{c.setId} first (× {c.frameCount}  {tx("frames)")}{tooFewFrames && (
+                      <span className="text-content-muted"> (only {c.frameCount}  {tx("frames — minimum")} {MIN_MASTER_FRAMES})</span>
                     )}
                   </span>
                 </label>
               );
             })}
             <div className="text-content-muted italic">
-              The flat will automatically use the new master (links are repointed after each build).
-            </div>
+              {tx("The flat will automatically use the new master (links are repointed after each build).")}</div>
           </div>
         )}
         {previewError && <div className="text-xs text-error mb-2">{previewError}</div>}
@@ -703,7 +701,7 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
           <div className="mb-3">
             <div className="text-xs text-content-muted mb-1 flex items-center gap-1.5">
               {batchLoading ? (
-                <><Loader2 size={12} className="animate-spin shrink-0" /> Loading preview for {effectiveIds.length} masters…</>
+                <><Loader2 size={12} className="animate-spin shrink-0" />  {tx("Loading preview for")} {effectiveIds.length} masters…</>
               ) : (
                 `Build order — ${sortedBatch.length} masters:`
               )}
@@ -733,7 +731,7 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
                         <span className="font-mono text-content-muted shrink-0">#{row.setId}</span>
                         {row.kind === 'ok' && (
                           <>
-                            <span className="text-content-secondary shrink-0">× {row.preview.frameCount} frames</span>
+                            <span className="text-content-secondary shrink-0">× {row.preview.frameCount}  {tx("frames")}</span>
                             <span className="text-content-secondary shrink-0">{formatCombine(row.preview.resolvedCombine)}</span>
                           </>
                         )}
@@ -827,13 +825,12 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
                                   })}
                                 />
                                 <span className={tooFewFrames ? 'text-content-muted' : 'text-content-secondary'}>
-                                  Add{' '}
+                                  {tx("Add")}{' '}
                                   <span className={`font-mono text-[10px] font-bold rounded px-1 py-0.5 ${typeBadgeClass(c.calType)}`}>
                                     {c.calType}
                                   </span>{' '}
-                                  master build from set #{c.setId} first (× {c.frameCount} frames)
-                                  {tooFewFrames && (
-                                    <span className="text-content-muted"> (only {c.frameCount} frames — minimum {MIN_MASTER_FRAMES})</span>
+                                  master build from set #{c.setId} first (× {c.frameCount}  {tx("frames)")}{tooFewFrames && (
+                                    <span className="text-content-muted"> (only {c.frameCount}  {tx("frames — minimum")} {MIN_MASTER_FRAMES})</span>
                                   )}
                                 </span>
                               </label>
@@ -847,8 +844,8 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
             </div>
             {!batchLoading && (
               <div className="mt-1 text-[11px] text-content-muted">
-                <div>{batchOkCount} will build · {batchWarningCount} warning{batchWarningCount === 1 ? '' : 's'} · {batchErrorCount} skipped</div>
-                {batchErrorCount > 0 && <div className="italic mt-0.5">Rows with errors will be skipped by the backend.</div>}
+                <div>{batchOkCount}  {tx("will build ·")} {batchWarningCount}  {tx("warning")}{batchWarningCount === 1 ? '' : tx("s")} · {batchErrorCount}  {tx("skipped")}</div>
+                {batchErrorCount > 0 && <div className="italic mt-0.5">{tx("Rows with errors will be skipped by the backend.")}</div>}
               </div>
             )}
           </div>
@@ -857,11 +854,11 @@ export function CreateMasterDialog({ setIds, onClose }: CreateMasterDialogProps)
         {startError && <div className="text-xs text-error mb-2">{startError}</div>}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover rounded">Cancel</button>
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover rounded">{tx("Cancel")}</button>
           <button onClick={start} disabled={starting}
                   className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-sm rounded disabled:opacity-50">
             {starting
-              ? 'Starting…'
+              ? tx("Starting…")
               : willBatchRawFirst
                 ? `Create ${checkedRawIdsList.length + 1} masters`
                 : single ? 'Create master' : 'Create all'}

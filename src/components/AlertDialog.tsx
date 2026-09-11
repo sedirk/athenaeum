@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n/I18nContext';
 import React from 'react';
 import { X, AlertCircle, AlertTriangle, Info } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export const AlertDialog: React.FC<AlertDialogProps> = ({
   variant = 'info',
   showCloseButton = true,
 }) => {
+  const { tx } = useI18n();
   if (!isOpen) return null;
 
   const variantStyles = {
@@ -65,8 +67,7 @@ export const AlertDialog: React.FC<AlertDialogProps> = ({
             onClick={onClose}
             className="px-4 py-2 bg-surface-hover text-content rounded hover:brightness-110 transition-colors"
           >
-            OK
-          </button>
+            {tx("OK")}</button>
         </div>
       </div>
     </div>

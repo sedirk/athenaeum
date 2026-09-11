@@ -23,6 +23,7 @@ import { useI18n } from '../i18n/I18nContext';
 type ThresholdUnit = 'arcsec' | 'arcmin' | 'deg';
 
 export default function Settings() {
+  const { tx } = useI18n();
   const { locale, setLocale, t } = useI18n();
   // Defaults should match backend: settings/mod.rs defaults
   const [thresholdValue, setThresholdValue] = useState('3.0');
@@ -649,8 +650,7 @@ export default function Settings() {
             {t('settings.transfersConfig')}
           </h3>
           <p className="text-xs text-content-muted mb-4">
-            Where transfers keep their working data, how fast they may upload, how many may arrive at once.
-          </p>
+            {tx("Where transfers keep their working data, how fast they may upload, how many may arrive at once.")}</p>
           <TransfersSection />
         </div>
       )}
@@ -661,17 +661,14 @@ export default function Settings() {
         <div className="bg-surface-elevated rounded-lg p-6 mt-6">
           <h3 className="text-xl font-semibold mb-4">{t('settings.calibrationConfig')}</h3>
           <p className="text-content-muted mb-6">
-            Configure how calibration frames (Flats, Darks, Bias) are matched to source frames.
-            Define which parameters must match exactly, warn on threshold, or be ignored.
-          </p>
+            {tx("Configure how calibration frames (Flats, Darks, Bias) are matched to source frames. Define which parameters must match exactly, warn on threshold, or be ignored.")}</p>
           <CalibrationMatchingConfig />
 
           <div className="mt-6 pt-6 border-t border-border">
             <h3 className="text-xl font-semibold mb-4">{t('settings.masterMemory')}</h3>
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Integration memory budget (
-                {budgetInfo
+                {tx("Integration memory budget (")}{budgetInfo
                   ? budgetInfo.configuredMb === 0
                     ? 'automatic'
                     : `${budgetInfo.configuredMb} MB`
@@ -702,7 +699,7 @@ export default function Settings() {
               </p>
               {budgetInfo && (
                 <p className="text-xs text-content-muted mt-1">
-                  Applied: {budgetInfo.effectiveMb} MB
+                  {tx("Applied:")} {budgetInfo.effectiveMb} MB
                 </p>
               )}
               {budgetNote && (
@@ -721,7 +718,7 @@ export default function Settings() {
                 className="mt-3 flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover disabled:bg-surface-hover disabled:cursor-not-allowed text-surface rounded-lg transition-colors"
               >
                 <Save size={16} />
-                {budgetSaving ? 'Saving...' : 'Save Memory Budget'}
+                {budgetSaving ? tx("Saving...") : tx("Save Memory Budget")}
               </button>
             </div>
           </div>
@@ -733,9 +730,7 @@ export default function Settings() {
         <div className="bg-surface-elevated rounded-lg p-6">
           <h3 className="text-xl font-semibold mb-4">{t('settings.starAnalysisConfig')}</h3>
           <p className="text-content-muted mb-6">
-            Configure star detection parameters and quality scoring weights for the Lights Analysis tab.
-            Changes here affect new analyses — existing results keep their original settings until re-analyzed.
-          </p>
+            {tx("Configure star detection parameters and quality scoring weights for the Lights Analysis tab. Changes here affect new analyses — existing results keep their original settings until re-analyzed.")}</p>
           <AnalysisSettingsPanel />
         </div>
       )}
@@ -745,10 +740,7 @@ export default function Settings() {
         <div className="bg-surface-elevated rounded-lg p-6">
           <h3 className="text-xl font-semibold mb-4">{t('settings.plateSolvingConfig')}</h3>
           <p className="text-content-muted mb-6">
-            Configure the astrometric plate solver used to determine sky coordinates for frames
-            that are missing RA/Dec metadata. The solver matches detected stars against the
-            downloadable Gaia DR3 density-tier catalog to compute a full WCS solution.
-          </p>
+            {tx("Configure the astrometric plate solver used to determine sky coordinates for frames that are missing RA/Dec metadata. The solver matches detected stars against the downloadable Gaia DR3 density-tier catalog to compute a full WCS solution.")}</p>
           <PlateSolveSettingsPanel />
         </div>
       )}
@@ -808,9 +800,7 @@ export default function Settings() {
               {t('settings.account')}
             </h3>
             <p className="text-xs text-content-muted mb-4">
-              Sign in to link this machine to your account for syncing frames between devices.
-              Optional — every feature works without an account.
-            </p>
+              {tx("Sign in to link this machine to your account for syncing frames between devices. Optional — every feature works without an account.")}</p>
             <AccountSection />
           </div>
 
@@ -825,7 +815,7 @@ export default function Settings() {
             <p className="text-xs text-content-muted mb-4">
               Send frames between your machines. A Capture device queues its frames to a paired
               Primary; the Primary receives and ingests them. Transfer folders, bandwidth and
-              storage live on the <span className="text-content-secondary">Transfers</span> tab.
+              storage live on the <span className="text-content-secondary">{tx("Transfers")}</span> tab.
             </p>
             <SyncSection />
           </div>
@@ -846,11 +836,9 @@ export default function Settings() {
               />
               <div>
                 <span className="block text-sm font-medium text-content-secondary">
-                  Automatically check for updates on startup
-                </span>
+                  {tx("Automatically check for updates on startup")}</span>
                 <span className="block text-xs text-content-muted mt-1">
-                  When enabled, Athenaeum checks for a newer version each time it starts and shows a notification if one is available. Disable to only check manually via the button on the About page.
-                </span>
+                  {tx("When enabled, Athenaeum checks for a newer version each time it starts and shows a notification if one is available. Disable to only check manually via the button on the About page.")}</span>
               </div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer">
@@ -862,11 +850,9 @@ export default function Settings() {
               />
               <div>
                 <span className="block text-sm font-medium text-content-secondary">
-                  Check for beta updates
-                </span>
+                  {tx("Check for beta updates")}</span>
                 <span className="block text-xs text-content-muted mt-1">
-                  When enabled, the update checker will also look for pre-release (beta) versions. Beta builds may contain new features that are still being tested.
-                </span>
+                  {tx("When enabled, the update checker will also look for pre-release (beta) versions. Beta builds may contain new features that are still being tested.")}</span>
               </div>
             </label>
           </div>
@@ -880,8 +866,7 @@ export default function Settings() {
             {/* Threshold Value and Unit */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Grouping Threshold
-              </label>
+                {tx("Grouping Threshold")}</label>
               <div className="flex gap-3">
                 <input
                   type="number"
@@ -896,9 +881,9 @@ export default function Settings() {
                   onChange={(e) => setThresholdUnit(e.target.value as ThresholdUnit)}
                   className="bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
                 >
-                  <option value="arcsec">arcseconds</option>
-                  <option value="arcmin">arcminutes</option>
-                  <option value="deg">degrees</option>
+                  <option value="arcsec">{tx("arcseconds")}</option>
+                  <option value="arcmin">{tx("arcminutes")}</option>
+                  <option value="deg">{tx("degrees")}</option>
                 </select>
               </div>
               <p className="text-xs text-content-muted mt-2">
@@ -916,8 +901,7 @@ export default function Settings() {
             {/* Session Gap Threshold */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Session Gap Threshold (hours)
-              </label>
+                {tx("Session Gap Threshold (hours)")}</label>
               <input
                 type="number"
                 value={sessionGapHours}
@@ -927,11 +911,7 @@ export default function Settings() {
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
               />
               <p className="text-xs text-content-muted mt-2">
-                Time gap to detect imaging night boundaries. If more than this many hours pass
-                between frames, they will be grouped into separate imaging nights. Typical night
-                sessions can span midnight (e.g., 19:00 Day 1 → 03:00 Day 2 = one night). Default
-                is 6 hours.
-              </p>
+                {tx("Time gap to detect imaging night boundaries. If more than this many hours pass between frames, they will be grouped into separate imaging nights. Typical night sessions can span midnight (e.g., 19:00 Day 1 → 03:00 Day 2 = one night). Default is 6 hours.")}</p>
             </div>
           </div>
         </div>
@@ -946,8 +926,7 @@ export default function Settings() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Resolution (%)
-              </label>
+                {tx("Resolution (%)")}</label>
               <input
                 type="number"
                 value={flatContourResolution}
@@ -958,13 +937,11 @@ export default function Settings() {
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
               />
               <p className="text-xs text-content-muted mt-1">
-                Resampling factor. Lower = faster, less detail. PI default: 50.
-              </p>
+                {tx("Resampling factor. Lower = faster, less detail. PI default: 50.")}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Sigma (px)
-              </label>
+                {tx("Sigma (px)")}</label>
               <input
                 type="number"
                 value={flatContourSigma}
@@ -975,13 +952,11 @@ export default function Settings() {
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
               />
               <p className="text-xs text-content-muted mt-1">
-                Gaussian noise-reduction sigma. PI default: 1.0.
-              </p>
+                {tx("Gaussian noise-reduction sigma. PI default: 1.0.")}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Contours
-              </label>
+                {tx("Contours")}</label>
               <input
                 type="number"
                 value={flatContourCount}
@@ -992,13 +967,11 @@ export default function Settings() {
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
               />
               <p className="text-xs text-content-muted mt-1">
-                Number of discrete bands. PI default: 15.
-              </p>
+                {tx("Number of discrete bands. PI default: 15.")}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Gradient (%)
-              </label>
+                {tx("Gradient (%)")}</label>
               <input
                 type="number"
                 value={flatContourGradient}
@@ -1009,8 +982,7 @@ export default function Settings() {
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
               />
               <p className="text-xs text-content-muted mt-1">
-                Boundary-emphasis strength. Higher darkens band edges more. PI default: 50.
-              </p>
+                {tx("Boundary-emphasis strength. Higher darkens band edges more. PI default: 50.")}</p>
             </div>
           </div>
         </div>
@@ -1029,20 +1001,16 @@ export default function Settings() {
                   className="w-4 h-4 rounded border-border text-accent focus:ring-2 focus:ring-accent focus:ring-offset-0 bg-surface-hover"
                 />
                 <span className="text-sm font-medium text-content-secondary">
-                  Enable background monitoring
-                </span>
+                  {tx("Enable background monitoring")}</span>
               </label>
               <p className="text-xs text-content-muted mt-2">
-                Master switch. When off, no scan roots are polled even if individually marked
-                as "Monitor". New files are still picked up on manual scan.
-              </p>
+                {tx("Master switch. When off, no scan roots are polled even if individually marked as \"Monitor\". New files are still picked up on manual scan.")}</p>
             </div>
 
             {/* Polling interval */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Polling interval (minutes)
-              </label>
+                {tx("Polling interval (minutes)")}</label>
               <input
                 type="number"
                 min="1"
@@ -1054,10 +1022,7 @@ export default function Settings() {
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent disabled:opacity-50"
               />
               <p className="text-xs text-content-muted mt-2">
-                How often to re-scan each monitor-enabled folder for new files. The scanner
-                is idempotent, so short intervals are fine on local drives but may be costly
-                for large NAS directories. Default is 10 minutes.
-              </p>
+                {tx("How often to re-scan each monitor-enabled folder for new files. The scanner is idempotent, so short intervals are fine on local drives but may be costly for large NAS directories. Default is 10 minutes.")}</p>
             </div>
           </div>
         </div>
@@ -1080,12 +1045,9 @@ export default function Settings() {
               />
               <div>
                 <span className="text-sm font-medium text-content-secondary">
-                  Skip confirmation on "Find new images"
-                </span>
+                  {tx("Skip confirmation on \"Find new images\"")}</span>
                 <p className="text-xs text-content-muted mt-0.5">
-                  When on, clicking the button merges all candidates immediately without
-                  showing a preview dialog.
-                </p>
+                  {tx("When on, clicking the button merges all candidates immediately without showing a preview dialog.")}</p>
               </div>
             </label>
             <label className="flex items-start gap-2 cursor-pointer">
@@ -1097,14 +1059,9 @@ export default function Settings() {
               />
               <div>
                 <span className="text-sm font-medium text-content-secondary">
-                  Auto-attach during background monitoring
-                </span>
+                  {tx("Auto-attach during background monitoring")}</span>
                 <p className="text-xs text-content-muted mt-0.5">
-                  When on, background scans that discover new lights automatically attach
-                  them to the nearest matching frame set (within the grouping threshold)
-                  without user intervention. You'll see a toast + notification bell entry
-                  for each auto-merge.
-                </p>
+                  {tx("When on, background scans that discover new lights automatically attach them to the nearest matching frame set (within the grouping threshold) without user intervention. You'll see a toast + notification bell entry for each auto-merge.")}</p>
               </div>
             </label>
           </div>
@@ -1117,16 +1074,15 @@ export default function Settings() {
             {/* Resolution */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Image Resolution
-              </label>
+                {tx("Image Resolution")}</label>
               <select
                 value={blinkResolution}
                 onChange={(e) => setBlinkResolution(e.target.value)}
                 className="w-full bg-surface-hover border border-border rounded-lg px-4 py-2 text-content focus:outline-none focus:border-accent"
               >
-                <option value="thumbnail">Thumbnail (4x downscale)</option>
-                <option value="preview">Preview (2x2 binning)</option>
-                <option value="full">Full Resolution</option>
+                <option value="thumbnail">{tx("Thumbnail (4x downscale)")}</option>
+                <option value="preview">{tx("Preview (2x2 binning)")}</option>
+                <option value="full">{tx("Full Resolution")}</option>
               </select>
               <p className="text-xs text-content-muted mt-2">
                 Resolution for blink viewer images. Thumbnail is fastest, Preview balances speed and quality, Full shows maximum detail. Note: Changing this will cache images separately for each resolution.
@@ -1144,7 +1100,7 @@ export default function Settings() {
             {blinkResolution === 'thumbnail' && (
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Thumbnail JPEG Quality ({qualityThumbnail})
+                {tx("Thumbnail JPEG Quality (")}{qualityThumbnail})
               </label>
               <input
                 type="range"
@@ -1156,19 +1112,18 @@ export default function Settings() {
                 className="w-full"
               />
               <div className="flex justify-between text-xs text-content-muted mt-1">
-                <span>1 (Smallest)</span>
-                <span>100 (Highest Quality)</span>
+                <span>{tx("1 (Smallest)")}</span>
+                <span>{tx("100 (Highest Quality)")}</span>
               </div>
               <p className="text-xs text-content-muted mt-2">
-                JPEG quality for thumbnail images. Default: 70. Lower values = smaller files, faster loading.
-              </p>
+                {tx("JPEG quality for thumbnail images. Default: 70. Lower values = smaller files, faster loading.")}</p>
             </div>
             )}
 
             {blinkResolution === 'preview' && (
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Preview JPEG Quality ({qualityPreview})
+                {tx("Preview JPEG Quality (")}{qualityPreview})
               </label>
               <input
                 type="range"
@@ -1180,19 +1135,18 @@ export default function Settings() {
                 className="w-full"
               />
               <div className="flex justify-between text-xs text-content-muted mt-1">
-                <span>1 (Smallest)</span>
-                <span>100 (Highest Quality)</span>
+                <span>{tx("1 (Smallest)")}</span>
+                <span>{tx("100 (Highest Quality)")}</span>
               </div>
               <p className="text-xs text-content-muted mt-2">
-                JPEG quality for preview/blink viewer images. Default: 85. Good balance of quality and file size.
-              </p>
+                {tx("JPEG quality for preview/blink viewer images. Default: 85. Good balance of quality and file size.")}</p>
             </div>
             )}
 
             {blinkResolution === 'full' && (
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Full Resolution JPEG Quality ({qualityFull})
+                {tx("Full Resolution JPEG Quality (")}{qualityFull})
               </label>
               <input
                 type="range"
@@ -1204,12 +1158,11 @@ export default function Settings() {
                 className="w-full"
               />
               <div className="flex justify-between text-xs text-content-muted mt-1">
-                <span>1 (Smallest)</span>
-                <span>100 (Highest Quality)</span>
+                <span>{tx("1 (Smallest)")}</span>
+                <span>{tx("100 (Highest Quality)")}</span>
               </div>
               <p className="text-xs text-content-muted mt-2">
-                JPEG quality for full resolution images. Default: 95. Highest quality for detailed viewing.
-              </p>
+                {tx("JPEG quality for full resolution images. Default: 95. Highest quality for detailed viewing.")}</p>
             </div>
             )}
 
@@ -1235,8 +1188,7 @@ export default function Settings() {
             {/* Memory Cache Size */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Memory Cache Size (images)
-              </label>
+                {tx("Memory Cache Size (images)")}</label>
               <input
                 type="number"
                 value={blinkCacheSize}
@@ -1254,8 +1206,7 @@ export default function Settings() {
             {/* Memory Cache Limit (MB) */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Memory Cache Limit (MB)
-              </label>
+                {tx("Memory Cache Limit (MB)")}</label>
               <input
                 type="number"
                 value={blinkCacheMaxMb}
@@ -1273,8 +1224,7 @@ export default function Settings() {
             {/* Memory Cache Retention */}
             <div>
               <label className="block text-sm font-medium text-content-secondary mb-2">
-                Memory Cache Retention (minutes)
-              </label>
+                {tx("Memory Cache Retention (minutes)")}</label>
               <input
                 type="number"
                 value={blinkRetentionMinutes}
@@ -1295,32 +1245,31 @@ export default function Settings() {
         <div>
           <h3 className="text-lg font-semibold mb-4">{t('settings.starAnnotations')}</h3>
           <p className="text-xs text-content-muted mb-4">
-            Configure how star annotations appear when toggled on in the Blink Viewer.
-          </p>
+            {tx("Configure how star annotations appear when toggled on in the Blink Viewer.")}</p>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-content-secondary mb-1">Color Scheme</label>
+                <label className="block text-xs text-content-secondary mb-1">{tx("Color Scheme")}</label>
                 <select
                   value={annotationSettings.color_scheme}
                   onChange={e => setAnnotationSettings(prev => ({ ...prev, color_scheme: e.target.value }))}
                   className="w-full bg-surface-hover border border-border rounded-lg px-3 py-2 text-sm text-content focus:outline-none focus:border-accent"
                 >
-                  <option value="eccentricity">Eccentricity</option>
+                  <option value="eccentricity">{tx("Eccentricity")}</option>
                   <option value="fwhm">FWHM</option>
-                  <option value="uniform">Uniform (green)</option>
+                  <option value="uniform">{tx("Uniform (green)")}</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-content-secondary mb-1">Line Width</label>
+                <label className="block text-xs text-content-secondary mb-1">{tx("Line Width")}</label>
                 <select
                   value={annotationSettings.line_width}
                   onChange={e => setAnnotationSettings(prev => ({ ...prev, line_width: parseInt(e.target.value) }))}
                   className="w-full bg-surface-hover border border-border rounded-lg px-3 py-2 text-sm text-content focus:outline-none focus:border-accent"
                 >
-                  <option value="1">1 (thin)</option>
-                  <option value="2">2 (medium)</option>
-                  <option value="3">3 (thick)</option>
+                  <option value="1">{tx("1 (thin)")}</option>
+                  <option value="2">{tx("2 (medium)")}</option>
+                  <option value="3">{tx("3 (thick)")}</option>
                 </select>
               </div>
             </div>
@@ -1331,7 +1280,7 @@ export default function Settings() {
                 onChange={e => setAnnotationSettings(prev => ({ ...prev, show_direction_tick: e.target.checked }))}
                 className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent"
               />
-              <span className="text-sm text-content-secondary">Show direction tick on elongated stars</span>
+              <span className="text-sm text-content-secondary">{tx("Show direction tick on elongated stars")}</span>
             </label>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1385,7 +1334,7 @@ export default function Settings() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-content-secondary mb-1">Min Radius (px)</label>
+                <label className="block text-xs text-content-secondary mb-1">{tx("Min Radius (px)")}</label>
                 <input
                   type="number"
                   value={annotationSettings.min_radius}
@@ -1395,7 +1344,7 @@ export default function Settings() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-content-secondary mb-1">Max Radius (px)</label>
+                <label className="block text-xs text-content-secondary mb-1">{tx("Max Radius (px)")}</label>
                 <input
                   type="number"
                   value={annotationSettings.max_radius}
@@ -1424,7 +1373,7 @@ export default function Settings() {
             {contentIndex.status && (
               <p className="text-sm text-content-secondary">
                 {contentIndex.status.total === 0
-                  ? 'No files catalogued yet.'
+                  ? tx("No files catalogued yet.")
                   : contentIndex.status.pending === 0
                     ? `All ${contentIndex.status.total} files indexed.`
                     : `${contentIndex.status.pending} of ${contentIndex.status.total} files not indexed yet.`}
@@ -1446,7 +1395,7 @@ export default function Settings() {
             {!contentIndex.running && contentIndex.lastFinished && (
               <p className={`text-xs ${contentIndex.lastFinished.failed ? 'text-warning' : 'text-content-muted'}`}>
                 {contentIndex.lastFinished.failed
-                  ? 'The last run could not read the catalog and indexed nothing. See the log for details.'
+                  ? tx("The last run could not read the catalog and indexed nothing. See the log for details.")
                   : `Last run${contentIndex.lastFinished.cancelled ? ' (cancelled)' : ''}: ${contentIndex.lastFinished.updated} indexed${
                       contentIndex.lastFinished.skipped > 0
                         ? `, ${contentIndex.lastFinished.skipped} skipped`
@@ -1464,24 +1413,22 @@ export default function Settings() {
               />
               <div>
                 <span className="block text-sm font-medium text-content-secondary">
-                  Group the Duplicates view by content
-                </span>
+                  {tx("Group the Duplicates view by content")}</span>
                 <span className="block text-xs text-content-muted mt-1">
-                  <span className="font-semibold text-content-secondary">Off</span> — raw
+                  <span className="font-semibold text-content-secondary">{tx("Off")}</span> — raw
                   sub-frames are grouped by their stored FITS/XISF header, which every scan
                   already records: no extra reading, and copies still match after a move
                   between drives changed their timestamps. Masters and processed files are
                   compared by their full contents.
                 </span>
                 <span className="block text-xs text-content-muted mt-1">
-                  <span className="font-semibold text-content-secondary">On</span> —
+                  <span className="font-semibold text-content-secondary">{tx("On")}</span> —
                   everything, masters included, is grouped by the sampled hash: 1.5 MB of each
                   file, so two masters that differ only outside the sampled regions look
                   identical. Run a deep verify before deleting masters in this mode.
                 </span>
                 <span className="block text-xs text-content-muted mt-1">
-                  New files get their hash from the index job after each scan, not during it.
-                </span>
+                  {tx("New files get their hash from the index job after each scan, not during it.")}</span>
               </div>
             </label>
 
@@ -1505,7 +1452,7 @@ export default function Settings() {
               className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover disabled:bg-surface-hover disabled:text-content-muted disabled:cursor-not-allowed text-surface rounded-lg transition-colors"
             >
               <RefreshCw size={18} className={contentIndex.running ? 'animate-spin' : ''} />
-              {contentIndex.running ? 'Indexing…' : 'Build index now'}
+              {contentIndex.running ? tx("Indexing…") : tx("Build index now")}
             </button>
           </div>
         </div>
@@ -1533,24 +1480,22 @@ export default function Settings() {
           {t('settings.archive')}
         </h3>
         <p className="text-xs text-content-muted mb-4">
-          Manage destination folders for archives in <span className="text-content">File Manager → Archive Folders</span>.
+          {tx("Manage destination folders for archives in")} <span className="text-content">{tx("File Manager → Archive Folders")}</span>.
         </p>
         <div>
           <label className="block text-sm font-medium text-content-secondary mb-2">
-            Compression
-          </label>
+            {tx("Compression")}</label>
           <select
             value={archiveCompression}
             onChange={(e) => handleArchiveCompressionChange(e.target.value as ArchiveCompression)}
             disabled={archiveSaving}
             className="px-3 py-2 bg-surface-hover border border-border rounded text-sm"
           >
-            <option value="store">Store (no compression — fastest, archive size ≈ source size)</option>
-            <option value="deflate">Deflate (smaller, slower — marginal savings on raw FITS)</option>
+            <option value="store">{tx("Store (no compression — fastest, archive size ≈ source size)")}</option>
+            <option value="deflate">{tx("Deflate (smaller, slower — marginal savings on raw FITS)")}</option>
           </select>
           <p className="text-xs text-content-muted mt-2">
-            FITS files compress poorly; Store is the recommended default.
-          </p>
+            {tx("FITS files compress poorly; Store is the recommended default.")}</p>
         </div>
       </div>
 
@@ -1562,33 +1507,30 @@ export default function Settings() {
             {t('settings.dataLocations')}
           </h3>
           <p className="text-sm text-content-muted mb-4">
-            Where Athenaeum stores its catalog database and log files on disk. Click the
-            folder icon to reveal the database in your file manager, or to open the log
-            folder directly.
-          </p>
+            {tx("Where Athenaeum stores its catalog database and log files on disk. Click the folder icon to reveal the database in your file manager, or to open the log folder directly.")}</p>
           <div className="bg-surface-secondary rounded p-4 text-sm font-mono space-y-3">
             <div className="flex items-center gap-3">
-              <span className="text-content-muted min-w-[80px]">Database:</span>
+              <span className="text-content-muted min-w-[80px]">{tx("Database:")}</span>
               <span className="text-content truncate flex-1" title={dbPath || undefined}>{dbPath || '—'}</span>
               {dbPath && (
                 <button
                   onClick={() => revealItemInDir(dbPath)}
                   className="text-content-muted hover:text-content transition flex-shrink-0"
-                  title="Reveal in file manager"
-                  aria-label="Reveal in file manager"
+                  title={tx("Reveal in file manager")}
+                  aria-label={tx("Reveal in file manager")}
                 >
                   <FolderOpen size={16} />
                 </button>
               )}
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-content-muted min-w-[80px]">Log folder:</span>
+              <span className="text-content-muted min-w-[80px]">{tx("Log folder:")}</span>
               <span className="text-content truncate flex-1" title={logDir || undefined}>{logDir || '—'}</span>
               {logDir && (
                 <button
                   onClick={() => openPath(logDir)}
                   className="text-content-muted hover:text-content transition flex-shrink-0"
-                  title="Open log folder"
+                  title={tx("Open log folder")}
                 >
                   <FolderOpen size={16} />
                 </button>

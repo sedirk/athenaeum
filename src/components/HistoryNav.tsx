@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n/I18nContext';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { useNavHistory } from '../contexts/NavHistoryContext';
 import { isMac } from '../utils/platform';
@@ -30,6 +31,7 @@ export function HistoryNav({
    */
   fallback?: string;
 }) {
+  const { tx } = useI18n();
   const { canBack, canForward, back, forward, backOr } = useNavHistory();
 
   return (
@@ -38,8 +40,8 @@ export function HistoryNav({
         type="button"
         onClick={fallback ? () => backOr(fallback) : back}
         disabled={!canBack && !fallback}
-        aria-label="Back"
-        title={BACK_HINT}
+        aria-label={tx("Back")}
+        title={tx(BACK_HINT)}
         className={BUTTON_CLASS}
       >
         <ArrowLeft size={18} />
@@ -48,8 +50,8 @@ export function HistoryNav({
         type="button"
         onClick={forward}
         disabled={!canForward}
-        aria-label="Forward"
-        title={FORWARD_HINT}
+        aria-label={tx("Forward")}
+        title={tx(FORWARD_HINT)}
         className={BUTTON_CLASS}
       >
         <ArrowRight size={18} />

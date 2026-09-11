@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import {
   AlertTriangle,
   AlertCircle,
@@ -21,6 +22,7 @@ interface WarningsPanelProps {
  * Panel displaying detailed warnings with full context
  */
 export function WarningsPanel({ warnings, onSetClick }: WarningsPanelProps) {
+  const { tx } = useI18n();
   if (warnings.length === 0) {
     return null;
   }
@@ -35,9 +37,9 @@ export function WarningsPanel({ warnings, onSetClick }: WarningsPanelProps) {
       {/* Header */}
       <div className="p-3 bg-warning/10 border-b border-border flex items-center gap-2">
         <AlertTriangle size={16} className="text-warning" />
-        <h3 className="text-sm font-medium">Attention Required</h3>
+        <h3 className="text-sm font-medium">{tx("Attention Required")}</h3>
         <span className="text-xs text-content-muted">
-          ({warnings.length} {warnings.length === 1 ? 'issue' : 'issues'})
+          ({warnings.length} {warnings.length === 1 ? tx("issue") : tx("issues")})
         </span>
       </div>
 
@@ -78,6 +80,7 @@ interface WarningCardProps {
 }
 
 function WarningCard({ warning, onSetClick }: WarningCardProps) {
+  const { tx } = useI18n();
   const SeverityIcon = getSeverityIcon(warning.severity);
   const TypeIcon = getTypeIcon(warning.warningType);
   const severityColor = getSeverityColor(warning.severity);
@@ -139,19 +142,19 @@ function WarningCard({ warning, onSetClick }: WarningCardProps) {
             <div className="flex flex-wrap gap-4 text-sm mb-2">
               {warning.actualValue && (
                 <div>
-                  <span className="text-content-muted">Actual: </span>
+                  <span className="text-content-muted">{tx("Actual:")} </span>
                   <span className="text-content">{warning.actualValue}</span>
                 </div>
               )}
               {warning.expectedValue && (
                 <div>
-                  <span className="text-content-muted">Expected: </span>
+                  <span className="text-content-muted">{tx("Expected:")} </span>
                   <span className="text-content">{warning.expectedValue}</span>
                 </div>
               )}
               {warning.delta && (
                 <div>
-                  <span className="text-content-muted">Delta: </span>
+                  <span className="text-content-muted">{tx("Delta:")} </span>
                   <span className={severityColor.text}>{warning.delta}</span>
                 </div>
               )}

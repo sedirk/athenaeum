@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState, useEffect, useCallback } from 'react';
 import { Save, RotateCw, CheckCircle, AlertCircle, Download, Info } from 'lucide-react';
 import { api } from '../../api';
@@ -82,6 +83,7 @@ function getDownloadStatusText(progress: CatalogDownloadProgress | null): string
 }
 
 export function PlateSolveSettingsPanel() {
+  const { tx } = useI18n();
   const [config, setConfig] = useState<PlateSolveConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -276,8 +278,7 @@ export function PlateSolveSettingsPanel() {
     return (
       <div className="flex items-center justify-center py-12 text-content-muted">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mr-3" />
-        Loading plate solve configuration...
-      </div>
+        {tx("Loading plate solve configuration...")}</div>
     );
   }
 
@@ -288,7 +289,7 @@ export function PlateSolveSettingsPanel() {
         <div className="p-4 bg-error-muted border border-error/50 rounded-lg flex items-start gap-3">
           <AlertCircle className="text-error flex-shrink-0 mt-0.5" size={20} />
           <div>
-            <p className="font-medium text-error">Error</p>
+            <p className="font-medium text-error">{tx("Error")}</p>
             <p className="text-sm text-error/80">{error}</p>
           </div>
         </div>
@@ -298,20 +299,18 @@ export function PlateSolveSettingsPanel() {
       {saved && (
         <div className="p-4 bg-success-muted border border-success/50 rounded-lg flex items-start gap-3">
           <CheckCircle className="text-success flex-shrink-0 mt-0.5" size={20} />
-          <p className="font-medium text-success">Configuration saved</p>
+          <p className="font-medium text-success">{tx("Configuration saved")}</p>
         </div>
       )}
 
       {/* Star Catalog */}
       <section>
         <h4 className="text-sm font-semibold uppercase tracking-wider text-content-muted mb-3">
-          Star Catalog
-        </h4>
+          {tx("Star Catalog")}</h4>
         {catalogsLoading ? (
           <div className="flex items-center gap-2 text-sm text-content-muted py-2">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent" />
-            Checking catalog status...
-          </div>
+            {tx("Checking catalog status...")}</div>
         ) : (
           <div className="rounded-lg border border-border bg-surface px-4 py-4 space-y-5">
 
@@ -323,7 +322,7 @@ export function PlateSolveSettingsPanel() {
                   <span className="min-w-0 truncate">
                     From your{' '}
                     <span className="font-medium text-content">{fovSummary.computable_count}</span>{' '}
-                    light frame{fovSummary.computable_count === 1 ? '' : 's'} — narrowest field{' '}
+                    light frame{fovSummary.computable_count === 1 ? '' : tx("s")} — narrowest field{' '}
                     <span className="font-medium text-content">
                       {fovSummary.min_fov_deg!.toFixed(2)}&deg;
                     </span>
@@ -333,48 +332,43 @@ export function PlateSolveSettingsPanel() {
                   <span className="flex-shrink-0 whitespace-nowrap">
                     &rarr; recommended:{' '}
                     <span className="font-medium text-content">
-                      {recommended.toLocaleString()} stars/deg&sup2;
-                    </span>
+                      {recommended.toLocaleString()}  {tx("stars/deg²")}</span>
                   </span>
                 </div>
                 {needsDownload ? (
                   <button
                     onClick={() => downloadStarCatalog(recommended)}
                     disabled={downloading}
-                    title="Download the recommended tier set (every tier up to the recommended density)"
+                    title={tx("Download the recommended tier set (every tier up to the recommended density)")}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded text-xs font-medium transition-colors text-surface flex-shrink-0"
                   >
                     <Download size={12} />
-                    Download
-                  </button>
+                    {tx("Download")}</button>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs text-success flex-shrink-0">
                     <CheckCircle size={13} />
-                    Installed
-                  </span>
+                    {tx("Installed")}</span>
                 )}
               </div>
             ) : (
               <p className="flex items-center gap-1.5 text-xs text-content-muted">
                 <Info size={13} className="flex-shrink-0" />
-                No frames with usable optics yet — pick a tier below.
-              </p>
+                {tx("No frames with usable optics yet — pick a tier below.")}</p>
             )}
 
             {/* Per-tier table — always shown (built from the fixed tier policy;
                 live install state + byte sizes merged in from get_catalog_status). */}
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-content-muted mb-2">
-                Catalog Tiers
-              </div>
+                {tx("Catalog Tiers")}</div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-content-muted border-b border-border">
-                      <th className="text-left pb-1.5 pr-4 font-medium">Tier</th>
-                      <th className="text-center pb-1.5 px-4 font-medium">Status</th>
-                      <th className="text-right pb-1.5 pr-4 font-medium">Stars</th>
-                      <th className="text-right pb-1.5 font-medium">Size</th>
+                      <th className="text-left pb-1.5 pr-4 font-medium">{tx("Tier")}</th>
+                      <th className="text-center pb-1.5 px-4 font-medium">{tx("Status")}</th>
+                      <th className="text-right pb-1.5 pr-4 font-medium">{tx("Stars")}</th>
+                      <th className="text-right pb-1.5 font-medium">{tx("Size")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -391,24 +385,21 @@ export function PlateSolveSettingsPanel() {
                             >
                               {tier.density.toLocaleString()}{' '}
                               <span className="font-normal text-content-muted">
-                                stars/deg&sup2;
-                              </span>
+                                {tx("stars/deg²")}</span>
                             </span>
                             <span className="ml-2 text-content-muted">
                               &middot; min FOV {tier.min_fov_deg.toFixed(2)}&deg;
                             </span>
                             {isRecommended && (
                               <span className="ml-2 text-[10px] font-semibold text-accent uppercase tracking-wide">
-                                recommended
-                              </span>
+                                {tx("recommended")}</span>
                             )}
                           </td>
                           <td className="py-2 px-4 align-top text-center">
                             {tier.installed ? (
                               <span className="inline-flex items-center gap-1 text-success">
                                 <CheckCircle size={12} />
-                                Installed
-                              </span>
+                                {tx("Installed")}</span>
                             ) : (
                               <button
                                 onClick={() => downloadStarCatalog(tier.density)}
@@ -417,8 +408,7 @@ export function PlateSolveSettingsPanel() {
                                 className="inline-flex items-center gap-1 font-medium text-accent hover:text-accent-hover disabled:opacity-50 transition-colors"
                               >
                                 <Download size={11} />
-                                Download
-                              </button>
+                                {tx("Download")}</button>
                             )}
                           </td>
                           <td className="py-2 pr-4 text-right text-content-muted tabular-nums align-top">
@@ -464,7 +454,7 @@ export function PlateSolveSettingsPanel() {
                   <span>
                     {downloadStartedAt != null
                       ? `elapsed ${formatElapsed(nowTs - downloadStartedAt)} · resumable — safe to leave running`
-                      : 'resumable — safe to leave running'}
+                      : tx("resumable — safe to leave running")}
                   </span>
                   {downloadProgress && (
                     <span>{downloadProgress.percent.toFixed(0)}%</span>
@@ -474,8 +464,7 @@ export function PlateSolveSettingsPanel() {
             ) : !needsDownload && !downloadError ? (
               <p className="text-xs text-success flex items-center gap-1.5">
                 <CheckCircle size={13} />
-                Recommended catalog tiers installed and up to date.
-              </p>
+                {tx("Recommended catalog tiers installed and up to date.")}</p>
             ) : null}
 
           </div>
@@ -485,14 +474,12 @@ export function PlateSolveSettingsPanel() {
       {/* Solver Parameters */}
       <section>
         <h4 className="text-sm font-semibold uppercase tracking-wider text-content-muted mb-3">
-          Solver Parameters
-        </h4>
+          {tx("Solver Parameters")}</h4>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Base Verification Tolerance */}
           <div>
             <label className="block text-sm font-medium text-content-secondary mb-1">
-              Verification Tolerance (arcsec)
-            </label>
+              {tx("Verification Tolerance (arcsec)")}</label>
             <input
               type="number"
               min={2}
@@ -505,8 +492,7 @@ export function PlateSolveSettingsPanel() {
               className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             />
             <p className="mt-1 text-xs text-content-muted">
-              Base angular tolerance for the persisted-solve confidence gate. The
-              actual pixel tolerance adapts per frame: <code>base / pixel_scale</code>,
+              {tx("Base angular tolerance for the persisted-solve confidence gate. The actual pixel tolerance adapts per frame:")} <code>base / pixel_scale</code>,
               clamped to [4, 20] px. Default 8.0&Prime;.
             </p>
           </div>
@@ -514,8 +500,7 @@ export function PlateSolveSettingsPanel() {
           {/* SIP Order */}
           <div>
             <label className="block text-sm font-medium text-content-secondary mb-1">
-              SIP Distortion Order
-            </label>
+              {tx("SIP Distortion Order")}</label>
             <input
               type="number"
               min={2}
@@ -525,9 +510,7 @@ export function PlateSolveSettingsPanel() {
               className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             />
             <p className="mt-1 text-xs text-content-muted">
-              Polynomial order for the SIP distortion fit passed to the solver
-              (2&ndash;5). Higher orders fit more distortion but need more matched stars.
-            </p>
+              {tx("Polynomial order for the SIP distortion fit passed to the solver (2–5). Higher orders fit more distortion but need more matched stars.")}</p>
           </div>
 
           {/* Autofind Tolerance */}
@@ -556,8 +539,7 @@ export function PlateSolveSettingsPanel() {
           {/* Batch Concurrency */}
           <div>
             <label className="block text-sm font-medium text-content-secondary mb-1">
-              Batch Concurrency
-            </label>
+              {tx("Batch Concurrency")}</label>
             <input
               type="number"
               min={0}
@@ -568,9 +550,7 @@ export function PlateSolveSettingsPanel() {
               className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             />
             <p className="mt-1 text-xs text-content-muted">
-              Worker threads for batch solving. Each worker solves one frame at a
-              time and shares the star-detection thread pool with the others.
-              <code>0</code> means auto &mdash; <code>cores / 3</code>, clamped to
+              {tx("Worker threads for batch solving. Each worker solves one frame at a time and shares the star-detection thread pool with the others.")}<code>0</code> means auto &mdash; <code>cores / 3</code>, clamped to
               2&ndash;8. Default 0.
             </p>
           </div>
@@ -580,8 +560,7 @@ export function PlateSolveSettingsPanel() {
       {/* Input Gate */}
       <section>
         <h4 className="text-sm font-semibold uppercase tracking-wider text-content-muted mb-3">
-          Input Gate
-        </h4>
+          {tx("Input Gate")}</h4>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -589,19 +568,10 @@ export function PlateSolveSettingsPanel() {
             onChange={(e) => setField('input_gate_enabled', e.target.checked)}
             className="w-4 h-4 rounded border-border text-accent focus:ring-2 focus:ring-accent focus:ring-offset-0 bg-surface-hover"
           />
-          <span>Refuse trailed frames before solving</span>
+          <span>{tx("Refuse trailed frames before solving")}</span>
         </label>
         <p className="mt-2 mb-4 text-xs text-content-muted">
-          A frame is refused when its own analysis reports a median star
-          eccentricity of at least the first value <strong>and</strong> a trail-fit
-          R&sup2; of at least the second &mdash; both, never either alone. Measured on
-          real frames: ones that solve correctly sit at eccentricity
-          0.62&ndash;0.72 with R&sup2; 0.30&ndash;0.57, hopeless ones at
-          0.90&ndash;0.96 with 0.73&ndash;0.93. Loosening these lets more frames
-          attempt a solve. Tightening them will <em>not</em> reliably catch more
-          trailed frames &mdash; the analysis under-reports eccentricity on exactly
-          those frames, so it rates many of them as round.
-        </p>
+          {tx("A frame is refused when its own analysis reports a median star eccentricity of at least the first value")} <strong>{tx("and")}</strong>  {tx("a trail-fit R² of at least the second — both, never either alone. Measured on real frames: ones that solve correctly sit at eccentricity 0.62–0.72 with R² 0.30–0.57, hopeless ones at 0.90–0.96 with 0.73–0.93. Loosening these lets more frames attempt a solve. Tightening them will")} <em>{tx("not")}</em>  {tx("reliably catch more trailed frames — the analysis under-reports eccentricity on exactly those frames, so it rates many of them as round.")}</p>
         <div
           className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${
             config.input_gate_enabled ? '' : 'opacity-50'
@@ -610,8 +580,7 @@ export function PlateSolveSettingsPanel() {
           {/* Max median eccentricity */}
           <div>
             <label className="block text-sm font-medium text-content-secondary mb-1">
-              Max Median Eccentricity
-            </label>
+              {tx("Max Median Eccentricity")}</label>
             <input
               type="number"
               min={0}
@@ -625,16 +594,13 @@ export function PlateSolveSettingsPanel() {
               className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed"
             />
             <p className="mt-1 text-xs text-content-muted">
-              How elongated the average star may be before the frame is a
-              candidate for refusal. Default 0.85.
-            </p>
+              {tx("How elongated the average star may be before the frame is a candidate for refusal. Default 0.85.")}</p>
           </div>
 
           {/* Min trail R-squared */}
           <div>
             <label className="block text-sm font-medium text-content-secondary mb-1">
-              Min Trail R&sup2;
-            </label>
+              {tx("Min Trail R²")}</label>
             <input
               type="number"
               min={0}
@@ -646,9 +612,7 @@ export function PlateSolveSettingsPanel() {
               className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed"
             />
             <p className="mt-1 text-xs text-content-muted">
-              How well the elongation lines up along one direction &mdash; high
-              means a tracking failure rather than soft seeing. Default 0.65.
-            </p>
+              {tx("How well the elongation lines up along one direction — high means a tracking failure rather than soft seeing. Default 0.65.")}</p>
           </div>
         </div>
       </section>
@@ -661,7 +625,7 @@ export function PlateSolveSettingsPanel() {
           className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors text-surface"
         >
           <Save size={16} />
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? tx("Saving...") : tx("Save")}
         </button>
         <button
           onClick={handleReset}
@@ -669,8 +633,7 @@ export function PlateSolveSettingsPanel() {
           className="flex items-center gap-2 px-4 py-2 border border-border hover:bg-surface-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
         >
           <RotateCw size={16} />
-          Reset to Defaults
-        </button>
+          {tx("Reset to Defaults")}</button>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderPlus, X } from 'lucide-react';
 import { api } from '../../api';
@@ -44,6 +45,7 @@ interface FoldersTabProps {
 const stripTrailing = (p: string) => p.replace(/[\\/]+$/, '');
 
 export default function FoldersTab({ selectSyncIncomingToken, onRootsChanged, onSyncIncomingHandled }: FoldersTabProps) {
+  const { tx } = useI18n();
   const {
     scanRoots, loading: rootsLoading, error: rootsError, clearError: clearRootsError,
     deleteScanRoot, toggleDuplicatesFlag, toggleUniqueCameraFlag, toggleMonitorEnabled,
@@ -552,11 +554,11 @@ export default function FoldersTab({ selectSyncIncomingToken, onRootsChanged, on
     <div className="flex-1 min-h-0 flex flex-col">
       {rootsError && (
         <div className="mb-3 p-3 bg-error-muted border border-error/50 rounded-lg flex items-start gap-2">
-          <p className="flex-1 min-w-0 text-error text-sm">Error loading folders: {String(rootsError)}</p>
+          <p className="flex-1 min-w-0 text-error text-sm">{tx("Error loading folders:")} {String(rootsError)}</p>
           <button
             onClick={clearRootsError}
-            aria-label="Dismiss"
-            title="Dismiss"
+            aria-label={tx("Dismiss")}
+            title={tx("Dismiss")}
             className="shrink-0 p-1 rounded hover:bg-surface-hover text-content-muted transition"
           >
             <X size={14} />
@@ -567,14 +569,12 @@ export default function FoldersTab({ selectSyncIncomingToken, onRootsChanged, on
       {empty ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center bg-surface-elevated rounded-lg">
           <FolderPlus size={40} className="text-info opacity-70" />
-          <div className="mt-3 text-lg font-bold text-content">No folders yet</div>
+          <div className="mt-3 text-lg font-bold text-content">{tx("No folders yet")}</div>
           <p className="mt-1 max-w-sm text-sm text-content-muted">
-            Add a folder with your FITS/XISF files to start cataloging. Roles and archive destinations can come later.
-          </p>
+            {tx("Add a folder with your FITS/XISF files to start cataloging. Roles and archive destinations can come later.")}</p>
           <button onClick={() => setAddDialog({ open: true })}
             className="mt-4 flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-surface font-semibold rounded-lg transition">
-            <FolderPlus size={18} /> Add Folder
-          </button>
+            <FolderPlus size={18} />  {tx("Add Folder")}</button>
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex gap-3">
@@ -601,8 +601,7 @@ export default function FoldersTab({ selectSyncIncomingToken, onRootsChanged, on
           <Fragment key={selectionKey}>
             {inspector ?? (
               <div className="flex-1 bg-surface-elevated rounded-lg flex items-center justify-center text-sm text-content-muted">
-                Select a folder on the left.
-              </div>
+                {tx("Select a folder on the left.")}</div>
             )}
           </Fragment>
         </div>

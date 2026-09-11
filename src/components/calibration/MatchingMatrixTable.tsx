@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import type {
   MatchMode,
   ParameterConfig,
@@ -35,6 +36,7 @@ export default function MatchingMatrixTable({
   sourceConfig,
   onParameterUpdate,
 }: MatchingMatrixTableProps) {
+  const { tx } = useI18n();
   const types = calibrationTypes[sourceType] || [];
 
   const getModeColor = (mode: MatchMode, locked: boolean): string => {
@@ -137,26 +139,26 @@ export default function MatchingMatrixTable({
               type="number"
               value={paramConfig.warning_threshold ?? ""}
               onChange={handleWarningThresholdChange}
-              placeholder="Warn"
+              placeholder={tx("Warn")}
               step="0.1"
               min="0"
-              title="Warning threshold - triggers warning display"
+              title={tx("Warning threshold - triggers warning display")}
               className="w-full px-1.5 py-0.5 bg-orange/10 border border-orange/40 rounded text-xs text-orange placeholder-orange/50"
             />
             <input
               type="number"
               value={paramConfig.matching_threshold ?? ""}
               onChange={handleMatchingThresholdChange}
-              placeholder="Max"
+              placeholder={tx("Max")}
               step="0.1"
               min="0"
-              title="Matching threshold - rejects match if exceeded"
+              title={tx("Matching threshold - rejects match if exceeded")}
               className="w-full px-1.5 py-0.5 bg-error/10 border border-error/40 rounded text-xs text-error placeholder-error/50"
             />
             {validationError && (
               <div className="flex items-center gap-1 text-error text-xs">
                 <AlertTriangle size={10} />
-                <span>Warn &lt;= Max</span>
+                <span>{tx("Warn <= Max")}</span>
               </div>
             )}
           </div>
@@ -194,8 +196,7 @@ export default function MatchingMatrixTable({
           <thead>
             <tr className="bg-surface-hover/50">
               <th className="p-2 border-b border-r border-border text-left font-medium w-[70px]">
-                Type
-              </th>
+                {tx("Type")}</th>
               {CONFIGURABLE_PARAMETERS.map((param, idx) => (
                 <th
                   key={param}
@@ -204,7 +205,7 @@ export default function MatchingMatrixTable({
                   } ${getColumnWidth(param)}`}
                 >
                   <span className="flex items-center justify-center gap-1">
-                    {getParameterLabel(param)}
+                    {tx(getParameterLabel(param))}
                   </span>
                 </th>
               ))}
@@ -221,7 +222,7 @@ export default function MatchingMatrixTable({
                   <td className={`p-2 border-r border-border font-medium capitalize ${
                     !isLastRow ? "border-b" : ""
                   }`}>
-                    {calibType === "darkflat" ? "DarkFlat" : calibType}
+                    {calibType === "darkflat" ? tx("DarkFlat") : calibType}
                   </td>
                   {CONFIGURABLE_PARAMETERS.map((param, idx) => {
                     const paramConfig =
@@ -251,34 +252,27 @@ export default function MatchingMatrixTable({
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-content-muted">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 flex items-center justify-center bg-success/30 text-success border border-success/50 rounded font-bold">=</span>
-            <span>Exact match</span>
+            <span>{tx("Exact match")}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 flex items-center justify-center bg-warning/30 text-warning border border-warning/50 rounded font-bold">≈</span>
-            <span>Threshold</span>
+            <span>{tx("Threshold")}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 flex items-center justify-center bg-surface-hover/30 text-content-muted border border-border/50 rounded font-bold">-</span>
-            <span>Ignored</span>
+            <span>{tx("Ignored")}</span>
           </div>
         </div>
 
         {/* Detailed explanation */}
         <div className="text-xs text-content-muted space-y-1 pt-2 border-t border-border">
           <p>
-            <span className="text-success font-medium">=</span> <strong>Exact</strong>:
-            Parameters must match exactly. Equipment parameters (Camera, Binning, Gain, Offset)
-            default to Exact match. Set to Ignore only if you intentionally mix equipment configurations.
+            <span className="text-success font-medium">=</span> <strong>{tx("Exact")}</strong>{tx(": Parameters must match exactly. Equipment parameters (Camera, Binning, Gain, Offset) default to Exact match. Set to Ignore only if you intentionally mix equipment configurations.")}</p>
+          <p>
+            <span className="text-warning font-medium">≈</span> <strong>{tx("Threshold")}</strong>{tx(": Matches within the")} <span className="text-error">{tx("Max")}</span>  {tx("threshold, but shows a warning if the")} <span className="text-orange">{tx("Warn")}</span>  {tx("threshold is exceeded. Match is rejected if outside")} <span className="text-error">{tx("Max")}</span>.
           </p>
           <p>
-            <span className="text-warning font-medium">≈</span> <strong>Threshold</strong>:
-            Matches within the <span className="text-error">Max</span> threshold, but shows a warning if the <span className="text-orange">Warn</span> threshold
-            is exceeded. Match is rejected if outside <span className="text-error">Max</span>.
-          </p>
-          <p>
-            <span className="text-content-muted font-medium">-</span> <strong>Ignored</strong>:
-            Parameter is not checked during matching (any value accepted).
-          </p>
+            <span className="text-content-muted font-medium">-</span> <strong>{tx("Ignored")}</strong>{tx(": Parameter is not checked during matching (any value accepted).")}</p>
         </div>
       </div>
     </div>

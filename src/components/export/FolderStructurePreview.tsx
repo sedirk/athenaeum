@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Folder, File, MoreHorizontal, HardDrive } from 'lucide-react';
 import type { FolderPreview, FolderNode, FolderNodeType } from '../../types/export';
@@ -14,20 +15,19 @@ export function FolderStructurePreview({
   preview,
   estimatedSizeBytes,
 }: FolderStructurePreviewProps) {
+  const { tx } = useI18n();
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-surface">
       {/* Header */}
       <div className="p-3 bg-surface-elevated border-b border-border">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-content-muted uppercase tracking-wide">
-            Export Folder Structure
-          </h3>
+            {tx("Export Folder Structure")}</h3>
           <div className="flex items-center gap-4 text-sm text-content-muted">
             <div className="flex items-center gap-1.5">
               <File size={14} />
               <span>
-                {preview.totalFiles} files
-              </span>
+                {preview.totalFiles}  {tx("files")}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <HardDrive size={14} />

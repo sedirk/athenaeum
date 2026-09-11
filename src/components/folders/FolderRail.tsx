@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { Fingerprint, Plus, RefreshCw, Star } from 'lucide-react';
 import type { ScanRootWithAvailability, ArchiveRoot, ArchivedFrameSetSummary } from '../../types/helpers';
 import type { FolderOverview } from '../../types/models';
@@ -50,6 +51,7 @@ function ScanRow({ root, sub, tint, Icon, selected, onClick, onRescan, scanning,
   selected: boolean; onClick: () => void; onRescan: () => void;
   scanning: boolean; percent: number | null; missing: number;
 }) {
+  const { tx } = useI18n();
   const offline = !root.is_available;
   return (
     <div
@@ -61,10 +63,10 @@ function ScanRow({ root, sub, tint, Icon, selected, onClick, onRescan, scanning,
         <div className="flex items-center gap-1.5 text-sm font-semibold text-content truncate">
           <span className="truncate">{basename(root.path)}</span>
           {missing > 0 && (
-            <span className="shrink-0 px-1.5 rounded-full text-[10px] font-semibold bg-orange/20 text-orange border border-orange/40">{missing} missing</span>
+            <span className="shrink-0 px-1.5 rounded-full text-[10px] font-semibold bg-orange/20 text-orange border border-orange/40">{missing}  {tx("missing")}</span>
           )}
           {offline && (
-            <span className="shrink-0 px-1.5 rounded-full text-[10px] font-semibold bg-error-muted text-error border border-error/40">offline</span>
+            <span className="shrink-0 px-1.5 rounded-full text-[10px] font-semibold bg-error-muted text-error border border-error/40">{tx("offline")}</span>
           )}
         </div>
         <div className="text-[11px] text-content-muted truncate">
@@ -74,7 +76,7 @@ function ScanRow({ root, sub, tint, Icon, selected, onClick, onRescan, scanning,
       <button
         onClick={(e) => { e.stopPropagation(); if (!offline && !scanning) onRescan(); }}
         disabled={offline || scanning}
-        title={offline ? 'Folder is offline' : 'Rescan this folder'}
+        title={offline ? tx("Folder is offline") : tx("Rescan this folder")}
         className={`p-1 rounded shrink-0 transition ${offline ? 'opacity-30 cursor-not-allowed text-content-muted' : scanning ? 'cursor-not-allowed text-content-muted' : 'text-content-muted hover:text-accent hover:bg-surface-hover'}`}
       >
         <RefreshCw size={14} className={scanning ? 'animate-spin text-accent' : ''} />
@@ -87,6 +89,7 @@ export function FolderRail({
   scanRoots, archiveRoots, archivedSets, overview, missingCounts, coveredCalibrationDir,
   selection, onSelect, onAdd, onRescan, isScanning, scanPercent, contentIndex,
 }: FolderRailProps) {
+  const { tx } = useI18n();
   // Anything that is not a known role lands in Monitored — including a kind this
   // build has never heard of (version downgrade). It must stay VISIBLE as a
   // generic monitored row rather than vanish from the rail.
@@ -121,8 +124,7 @@ export function FolderRail({
         onClick={() => onAdd()}
         className="w-full flex items-center justify-center gap-2 px-3 py-2 mb-1 bg-accent hover:bg-accent-hover text-surface font-semibold rounded-lg transition"
       >
-        <Plus size={16} /> Add Folder
-      </button>
+        <Plus size={16} />  {tx("Add Folder")}</button>
 
       <button
         onClick={contentIndex.onBuild}
@@ -136,16 +138,16 @@ export function FolderRail({
           ? <RefreshCw size={16} className="animate-spin text-accent shrink-0" />
           : <Fingerprint size={16} className="shrink-0" />}
         {ciRunning
-          ? 'Indexing…'
+          ? tx("Indexing…")
           : ciPending === null
             ? 'Content index…'
             : ciPending === 0
               ? 'All files indexed'
-              : <span>Build content index <span className="text-content-muted">· {ciPending.toLocaleString()} pending</span></span>}
+              : <span>{tx("Build content index")} <span className="text-content-muted">· {ciPending.toLocaleString()}  {tx("pending")}</span></span>}
       </button>
 
-      <GroupHeader label="Monitored" />
-      {monitored.length === 0 && <p className="px-2 text-xs text-content-muted">No monitored folders yet.</p>}
+      <GroupHeader label={tx("Monitored")} />
+      {monitored.length === 0 && <p className="px-2 text-xs text-content-muted">{tx("No monitored folders yet.")}</p>}
       {monitored.map((root) => {
         const id = root.id;
         if (id == null) return null;
@@ -166,7 +168,7 @@ export function FolderRail({
         );
       })}
 
-      <GroupHeader label="Special roles" />
+      <GroupHeader label={tx("Special roles")} />
       {ROLE_ORDER.map((kind) => {
         const meta = ROLE_META[kind];
         const root = roleRoots.get(kind);
@@ -177,7 +179,7 @@ export function FolderRail({
             <ScanRow
               key={kind}
               root={root}
-              sub={`${meta.label} · ${parentPath(root.path)}`}
+              sub={`${tx(meta.label)} · ${parentPath(root.path)}`}
               tint={meta.tint}
               Icon={meta.icon}
               selected={isSel(selection, { type: 'scan', id })}
@@ -202,7 +204,7 @@ export function FolderRail({
               <meta.icon size={16} className={`${meta.tint} shrink-0`} />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold text-content truncate">{basename(coveredCalibrationDir)}</div>
-                <div className="text-[11px] text-content-muted truncate">{meta.label} · inside {parentPath(coveredCalibrationDir)}</div>
+                <div className="text-[11px] text-content-muted truncate">{tx(meta.label)} · {tx('Inside {path}', { path: parentPath(coveredCalibrationDir) })}</div>
               </div>
             </div>
           );
@@ -215,21 +217,20 @@ export function FolderRail({
           >
             <meta.icon size={16} className={`${meta.tint} opacity-60 shrink-0`} />
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-content-muted truncate">{meta.label}</div>
-              <div className="text-[11px] text-content-muted/70 truncate">{meta.purpose}</div>
+              <div className="text-sm text-content-muted truncate">{tx(meta.label)}</div>
+              <div className="text-[11px] text-content-muted/70 truncate">{tx(meta.purpose)}</div>
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); onAdd(kind); }}
               className="shrink-0 px-2 py-1 rounded bg-surface-hover text-xs text-accent hover:brightness-110 transition"
             >
-              Set up…
-            </button>
+              {tx("Set up…")}</button>
           </div>
         );
       })}
 
-      <GroupHeader label="Archive destinations" />
-      {sortedArchive.length === 0 && <p className="px-2 text-xs text-content-muted">No archive folders yet.</p>}
+      <GroupHeader label={tx("Archive destinations")} />
+      {sortedArchive.length === 0 && <p className="px-2 text-xs text-content-muted">{tx("No archive folders yet.")}</p>}
       {sortedArchive.map((root) => {
         const selected = isSel(selection, { type: 'archive', id: root.id });
         const bytes = archiveBytes(root);
@@ -246,7 +247,7 @@ export function FolderRail({
                 {root.is_default && <Star size={12} className="text-warning shrink-0" fill="currentColor" />}
               </div>
               <div className="text-[11px] text-content-muted truncate">
-                {parentPath(root.path)} · {setCount(root)} sets{bytes > 0 ? ` · ${formatBytes(bytes)}` : ''}
+                {parentPath(root.path)} · {setCount(root)}  {tx("sets")}{bytes > 0 ? ` · ${formatBytes(bytes)}` : ''}
               </div>
             </div>
           </div>

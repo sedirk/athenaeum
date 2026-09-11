@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { EquipmentHeader } from './EquipmentHeader';
 import { FilterGroupCard } from './FilterGroupCard';
 import { FolderStructurePreview } from './FolderStructurePreview';
@@ -14,6 +15,7 @@ interface ExportSummaryProps {
  * Main export summary container that orchestrates all summary components
  */
 export function ExportSummary({ summary }: ExportSummaryProps) {
+  const { tx } = useI18n();
   // Filter warnings to only include actionable ones (exclude missing calibration - already shown in UI)
   const getWarningsForFilter = (filterName: string | null): DetailedWarning[] => {
     const name = filterName || 'Unfiltered';
@@ -46,7 +48,7 @@ export function ExportSummary({ summary }: ExportSummaryProps) {
       {/* Filter Group Cards */}
       <div>
         <h3 className="text-sm font-medium text-content-muted uppercase tracking-wide mb-3">
-          Filter Groups ({summary.filterGroups.length})
+          {tx("Filter Groups (")}{summary.filterGroups.length})
         </h3>
         <div className="space-y-4">
           {summary.filterGroups.map((group, index) => (
@@ -69,20 +71,20 @@ export function ExportSummary({ summary }: ExportSummaryProps) {
       <div className="p-4 bg-surface-elevated rounded-lg border border-border">
         <div className="flex flex-wrap gap-6 text-sm">
           <div>
-            <span className="text-content-muted">Total Frames: </span>
+            <span className="text-content-muted">{tx("Total Frames:")} </span>
             <span className="font-medium text-content">{summary.totalFiles}</span>
           </div>
           <div>
-            <span className="text-content-muted">Estimated Size: </span>
+            <span className="text-content-muted">{tx("Estimated Size:")} </span>
             <span className="font-medium text-content">{formatBytes(summary.estimatedSizeBytes)}</span>
           </div>
           <div>
-            <span className="text-content-muted">Filter Groups: </span>
+            <span className="text-content-muted">{tx("Filter Groups:")} </span>
             <span className="font-medium text-content">{summary.filterGroups.length}</span>
           </div>
           {summary.cameras.length > 0 && (
             <div>
-              <span className="text-content-muted">Cameras: </span>
+              <span className="text-content-muted">{tx("Cameras:")} </span>
               <span className="font-medium text-content">{summary.cameras.length}</span>
             </div>
           )}

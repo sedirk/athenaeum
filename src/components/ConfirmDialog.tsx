@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../i18n/I18nContext';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   cancelText = 'Cancel',
   confirmDanger = false,
 }) => {
+  const { tx } = useI18n();
   if (!isOpen) return null;
 
   return (
@@ -33,7 +35,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             onClick={onCancel}
             className="px-4 py-2 bg-surface-hover text-content rounded hover:brightness-110 transition-colors"
           >
-            {cancelText}
+            {tx(cancelText)}
           </button>
           <button
             onClick={onConfirm}
@@ -43,7 +45,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 : 'bg-success text-surface hover:brightness-110'
             }`}
           >
-            {confirmText}
+            {tx(confirmText)}
           </button>
         </div>
       </div>

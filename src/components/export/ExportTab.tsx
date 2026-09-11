@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -133,6 +134,7 @@ function readExportModePref(): ExportMode {
  *   - "Export to WBPP" button has a tooltip explaining the acronym.
  */
 export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
+  const { tx } = useI18n();
   const navigate = useNavigate();
   const [outputDir, setOutputDir] = useState<string>('');
   const [useSymlinks, setUseSymlinks] = useState(false);
@@ -484,38 +486,35 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
       {loadingSummary || (readinessLoading && !readiness) ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-accent" />
-          <span className="ml-3 text-content-muted">Loading export summary…</span>
+          <span className="ml-3 text-content-muted">{tx("Loading export summary…")}</span>
         </div>
       ) : summaryError || (readinessError && !readiness) ? (
         <div className="p-4 bg-error/10 border border-error/30 rounded-lg">
           <h3 className="font-medium text-error mb-1">
-            {summaryError ? 'Failed to load export summary' : 'Failed to check export readiness'}
+            {summaryError ? tx("Failed to load export summary") : tx("Failed to check export readiness")}
           </h3>
           <p className="text-sm text-content-muted">{summaryError ?? readinessError}</p>
         </div>
       ) : !summary ? (
         <div className="p-4 text-center text-content-muted">
-          No export data available
-        </div>
+          {tx("No export data available")}</div>
       ) : (
         <div className="space-y-6 pb-6">
           {/* Export mode selector (spec §12.2) — controls what the lights +
               calibration side put on disk. Persisted in localStorage and, at
               export time, synced into the WbppExportConfig the backend reads. */}
           <section className="bg-surface-elevated rounded-lg p-4">
-            <h3 className="text-lg font-medium mb-1">Export Mode</h3>
+            <h3 className="text-lg font-medium mb-1">{tx("Export Mode")}</h3>
             <p className="text-sm text-content-muted mb-3">
-              Choose what lands on disk for PixInsight WBPP.
-            </p>
+              {tx("Choose what lands on disk for PixInsight WBPP.")}</p>
             {readinessLoading && (
               <p className="flex items-center gap-2 text-sm text-content-muted mb-3">
-                <Loader2 size={14} className="animate-spin" /> Checking readiness…
-              </p>
+                <Loader2 size={14} className="animate-spin" />  {tx("Checking readiness…")}</p>
             )}
             {readinessError && (
-              <p className="text-sm text-error mb-3">Failed to check readiness: {readinessError}</p>
+              <p className="text-sm text-error mb-3">{tx("Failed to check readiness:")} {readinessError}</p>
             )}
-            <div role="radiogroup" aria-label="Export mode" className="space-y-2">
+            <div role="radiogroup" aria-label={tx("Export mode")} className="space-y-2">
               {EXPORT_MODE_OPTIONS.map(opt => {
                 const active = exportMode === opt.value;
                 // Display only — the backend re-checks the same rule.
@@ -541,12 +540,12 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                     />
                     <span className="flex-1 min-w-0 flex flex-col">
                       <span className="flex items-baseline gap-2">
-                        <span className="flex-1 text-sm font-medium text-content">{opt.label}</span>
+                        <span className="flex-1 text-sm font-medium text-content">{tx(opt.label)}</span>
                         <span className="text-xs text-content-muted tabular-nums">
-                          {readiness ? `${opt.count(readiness.fileCounts)} files` : ''}
+                          {readiness ? tx('{count} files', { count: opt.count(readiness.fileCounts) }) : ''}
                         </span>
                       </span>
-                      <span className="block text-xs text-content-muted mt-0.5">{opt.hint}</span>
+                      <span className="block text-xs text-content-muted mt-0.5">{tx(opt.hint)}</span>
                       {reason && (
                         <span className="mt-1 flex items-center gap-2 text-xs text-error">
                           <AlertTriangle size={12} /> {reason}
@@ -569,8 +568,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                               else navigate('?tab=calibration', { replace: true });
                             }}
                           >
-                            → Coverage
-                          </button>
+                            {tx("→ Coverage")}</button>
                         </span>
                       )}
                     </span>
@@ -598,13 +596,12 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                       className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent"
                     />
                     <span className="text-sm text-content-secondary">
-                      Normalize master flat (recommended)
-                    </span>
+                      {tx("Normalize master flat (recommended)")}</span>
                   </label>
 
                   {flatNorm && (
                     <div className="mt-2 ml-6 space-y-1.5">
-                      <div className="text-xs text-content-muted">Normalization statistic</div>
+                      <div className="text-xs text-content-muted">{tx("Normalization statistic")}</div>
                       <label className="flex items-center gap-2 text-xs text-content-secondary cursor-pointer">
                         <input
                           type="radio"
@@ -613,8 +610,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                           onChange={() => handleFlatNormModeChange('centralThird')}
                           className="w-3.5 h-3.5 text-accent border-border focus:ring-accent"
                         />
-                        Central third mean (Athenaeum)
-                      </label>
+                        {tx("Central third mean (Athenaeum)")}</label>
                       <label className="flex items-center gap-2 text-xs text-content-secondary cursor-pointer">
                         <input
                           type="radio"
@@ -623,8 +619,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                           onChange={() => handleFlatNormModeChange('pixinsightTrimmed')}
                           className="w-3.5 h-3.5 text-accent border-border focus:ring-accent"
                         />
-                        Full-frame trimmed mean ({trimPercentLabel} per tail)
-                      </label>
+                        {tx("Full-frame trimmed mean (")}{trimPercentLabel}  {tx("per tail)")}</label>
 
                       {/* Per-channel CFA scaling refines the statistic, so it
                           lives under the statistic it refines. Unavailable in
@@ -645,12 +640,11 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                           }
                           className="w-3.5 h-3.5 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
                         />
-                        Per-channel CFA flat scaling
-                      </label>
+                        {tx("Per-channel CFA flat scaling")}</label>
                       <p className="text-[11px] text-content-muted ml-6">
                         {flatNormMode === 'pixinsightTrimmed'
-                          ? 'Not available with the full-frame trimmed mean — that statistic is measured across all channels at once.'
-                          : 'Applies to color (CFA) lights; mono lights are unaffected.'}
+                          ? tx("Not available with the full-frame trimmed mean — that statistic is measured across all channels at once.")
+                          : tx("Applies to color (CFA) lights; mono lights are unaffected.")}
                       </p>
                     </div>
                   )}
@@ -664,7 +658,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                       onChange={e => handleHotPixelChange(e.target.checked)}
                       className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent"
                     />
-                    <span className="text-sm text-content-secondary">Hot-pixel correction</span>
+                    <span className="text-sm text-content-secondary">{tx("Hot-pixel correction")}</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -673,7 +667,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                       onChange={e => handleDebayerChange(e.target.checked)}
                       className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent"
                     />
-                    <span className="text-sm text-content-secondary">Debayer OSC lights (VNG)</span>
+                    <span className="text-sm text-content-secondary">{tx("Debayer OSC lights (VNG)")}</span>
                   </label>
                 </div>
 
@@ -689,8 +683,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                   >
                     {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     <SlidersHorizontal size={12} className="text-content-muted" />
-                    Advanced
-                  </button>
+                    {tx("Advanced")}</button>
 
                   {advancedOpen && (
                     <div className="mt-3 ml-1 space-y-3">
@@ -698,8 +691,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                       {flatNorm && flatNormMode === 'pixinsightTrimmed' && (
                         <div>
                           <label htmlFor="export-trim-fraction" className="block text-xs text-content-secondary mb-1">
-                            Flat trim fraction (per tail)
-                          </label>
+                            {tx("Flat trim fraction (per tail)")}</label>
                           <input
                             id="export-trim-fraction"
                             type="number"
@@ -712,15 +704,13 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                             className="w-28 px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent"
                           />
                           <p className="text-[11px] text-content-muted mt-1">
-                            Fraction discarded from each tail of the trimmed mean (default 0.05).
-                          </p>
+                            {tx("Fraction discarded from each tail of the trimmed mean (default 0.05).")}</p>
                         </div>
                       )}
 
                       <div>
                         <label htmlFor="export-pedestal-dn" className="block text-xs text-content-secondary mb-1">
-                          Output pedestal (DN)
-                        </label>
+                          {tx("Output pedestal (DN)")}</label>
                         <input
                           id="export-pedestal-dn"
                           type="number"
@@ -732,15 +722,12 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                           className="w-28 px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent"
                         />
                         <p className="text-[11px] text-content-muted mt-1">
-                          Added after the scale divide, for consumers that clip negatives. 0 = negatives
-                          preserved.
-                        </p>
+                          {tx("Added after the scale divide, for consumers that clip negatives. 0 = negatives preserved.")}</p>
                       </div>
 
                       <div>
                         <div className="text-xs text-content-secondary mb-1">
-                          Lights with no dark master
-                        </div>
+                          {tx("Lights with no dark master")}</div>
                         <label className="flex items-center gap-2 text-xs text-content-secondary mb-1 cursor-pointer">
                           <input
                             type="radio"
@@ -751,8 +738,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                             }
                             className="w-3.5 h-3.5 text-accent border-border focus:ring-accent"
                           />
-                          Subtract bias (calibrate best-effort)
-                        </label>
+                          {tx("Subtract bias (calibrate best-effort)")}</label>
                         <label className="flex items-center gap-2 text-xs text-content-secondary cursor-pointer">
                           <input
                             type="radio"
@@ -763,13 +749,9 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                             }
                             className="w-3.5 h-3.5 text-accent border-border focus:ring-accent"
                           />
-                          Skip the frame (never bias-only)
-                        </label>
+                          {tx("Skip the frame (never bias-only)")}</label>
                         <p className="text-[11px] text-content-muted mt-1">
-                          When a light has no matched dark master, either subtract its linked bias or
-                          skip that frame — a skipped frame is reported as an export warning, never
-                          silently absent.
-                        </p>
+                          {tx("When a light has no matched dark master, either subtract its linked bias or skip that frame — a skipped frame is reported as an export warning, never silently absent.")}</p>
                       </div>
                     </div>
                   )}
@@ -797,26 +779,25 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
 
           {/* Export Options */}
           <section className="bg-surface-elevated rounded-lg p-4">
-            <h3 className="text-lg font-medium mb-3">Export Options</h3>
+            <h3 className="text-lg font-medium mb-3">{tx("Export Options")}</h3>
             <div className="space-y-4">
               {/* Output directory */}
               <div>
                 <label htmlFor="export-output-dir" className="block text-sm text-content-muted mb-1">
-                  Output Directory
-                </label>
+                  {tx("Output Directory")}</label>
                 <div className="flex gap-2">
                   <input
                     id="export-output-dir"
                     type="text"
                     value={outputDir}
                     readOnly
-                    placeholder="Select output folder…"
+                    placeholder={tx("Select output folder…")}
                     title={outputDir || undefined}
                     className="flex-1 px-3 py-2 bg-surface-hover border border-border rounded-lg text-content placeholder-content-muted truncate"
                   />
                   <button
                     onClick={handleSelectFolder}
-                    title="Pick the destination folder"
+                    title={tx("Pick the destination folder")}
                     className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
                       outputDir
                         ? 'bg-surface-hover border border-border hover:brightness-110'
@@ -824,8 +805,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                     }`}
                   >
                     <Folder size={16} />
-                    Browse
-                  </button>
+                    {tx("Browse")}</button>
                 </div>
               </div>
 
@@ -841,8 +821,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                       className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent"
                     />
                     <span className="text-content-secondary">
-                      Use symbolic links instead of copying files
-                    </span>
+                      {tx("Use symbolic links instead of copying files")}</span>
                   </label>
                 </div>
               ) : symlinkUnavailableReason ? (
@@ -853,25 +832,23 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
                   need it once, but the summary is right there. */}
               <details className="p-3 bg-surface-hover/50 rounded-lg text-sm text-content-muted">
                 <summary className="font-medium cursor-pointer select-none">
-                  WBPP Setup Guide
-                </summary>
+                  {tx("WBPP Setup Guide")}</summary>
                 <div className="mt-3 space-y-3">
                   <p>
-                    To enable automatic grouping in WBPP, add these <strong>Grouping Keywords</strong> in <strong>exactly this order</strong>:
+                    {tx("To enable automatic grouping in WBPP, add these")} <strong>{tx("Grouping Keywords")}</strong> in <strong>{tx("exactly this order")}</strong>:
                   </p>
                   <ol className="list-decimal list-inside space-y-1 text-xs">
-                    <li>Open WBPP in PixInsight</li>
-                    <li>Check <strong>Grouping Keywords</strong></li>
+                    <li>{tx("Open WBPP in PixInsight")}</li>
+                    <li>{tx("Check")} <strong>{tx("Grouping Keywords")}</strong></li>
                     {wbppKeywords.map(kw => (
                       <li key={kw.keyword}>
-                        Add <code className="px-1 bg-surface-hover rounded">{kw.keyword}</code> with <strong>Pre</strong> checked
-                        <span className="text-content-muted ml-1">({kw.description})</span>
+                        {tx("Add")} <code className="px-1 bg-surface-hover rounded">{kw.keyword}</code> with <strong>Pre</strong>  {tx("checked")}<span className="text-content-muted ml-1">({kw.description})</span>
                       </li>
                     ))}
                   </ol>
                   {exampleStructure && (
                     <div>
-                      <p className="font-medium mb-1">Expected folder structure:</p>
+                      <p className="font-medium mb-1">{tx("Expected folder structure:")}</p>
                       <pre className="text-xs font-mono">{exampleStructure}</pre>
                     </div>
                   )}
@@ -885,14 +862,13 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
               ExportProgressIndicator. */}
           {exportError && (
             <div className="p-3 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-start gap-2">
-              <span className="flex-1">Export failed to start: {exportError}</span>
+              <span className="flex-1">{tx("Export failed to start:")} {exportError}</span>
               <button
                 type="button"
                 onClick={() => setExportError(null)}
                 className="underline hover:no-underline flex-shrink-0"
               >
-                Dismiss
-              </button>
+                {tx("Dismiss")}</button>
             </div>
           )}
 
@@ -902,13 +878,12 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
             <button onClick={() => { void handleExport(); }} disabled={!canExport}
               title={readinessFailedTooltip ?? blocker ?? (outputDir ? 'Export to PixInsight WBPP folder structure' : 'Pick an output folder first')}
               className={`flex-1 py-3 rounded-lg font-medium flex items-center justify-center gap-2 ${canExport ? 'bg-accent hover:bg-accent-hover text-white' : 'bg-surface-hover cursor-not-allowed text-content-muted'}`}>
-              {exporting ? (<><Loader2 className="animate-spin" size={20} /> Exporting…</>) : (<><Play size={20} /> Export to WBPP</>)}
+              {exporting ? (<><Loader2 className="animate-spin" size={20} />  {tx("Exporting…")}</>) : (<><Play size={20} />  {tx("Export to WBPP")}</>)}
             </button>
             <button onClick={() => setSendOpen(true)} disabled={!canSend}
               title={readinessFailedTooltip ?? blocker ?? 'Send this frame set to another Athenaeum node'}
               className={`flex-1 py-3 rounded-lg font-medium flex items-center justify-center gap-2 border ${canSend ? 'border-accent text-accent hover:bg-accent/10' : 'border-border cursor-not-allowed text-content-muted'}`}>
-              <Send size={20} /> Send to node…
-            </button>
+              <Send size={20} />  {tx("Send to node…")}</button>
           </div>
         </div>
       )}
@@ -932,7 +907,7 @@ export function ExportTab({ frameSetId, frameSetName }: ExportTabProps) {
             kind: 'frameSet',
             frameSetId,
             mode: exportMode,
-            modeLabel: EXPORT_MODE_OPTIONS.find(o => o.value === exportMode)?.label ?? exportMode,
+            modeLabel: tx(EXPORT_MODE_OPTIONS.find(o => o.value === exportMode)?.label ?? exportMode),
             fileCount: EXPORT_MODE_OPTIONS.find(o => o.value === exportMode)?.count(readiness.fileCounts) ?? 0,
           }}
           open={sendOpen}

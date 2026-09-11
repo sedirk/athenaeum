@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState } from 'react';
 import {
   ChevronDown,
@@ -28,6 +29,7 @@ interface FilterGroupCardProps {
  * Filter-grouped summary card showing exposure breakdown, equipment, and calibrations
  */
 export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) {
+  const { tx } = useI18n();
   const [framesExpanded, setFramesExpanded] = useState(false);
 
   const filterColor = getFilterColor(group.filter);
@@ -57,14 +59,13 @@ export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) 
               {filterLabel}
               {group.filter && isNarrowband(group.filter) && (
                 <span className="ml-2 text-xs px-1.5 py-0.5 bg-purple/20 text-purple rounded">
-                  Narrowband
-                </span>
+                  {tx("Narrowband")}</span>
               )}
             </h3>
             <CameraTypeBadge type={group.cameraType} />
           </div>
           <div className="flex items-center gap-4 text-sm text-content-muted">
-            <span>{group.frameCount} frames</span>
+            <span>{group.frameCount}  {tx("frames")}</span>
             <span className="font-medium text-content">{formatExposure(group.totalExposure)}</span>
           </div>
         </div>
@@ -75,8 +76,7 @@ export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) 
         {/* Exposure Breakdown */}
         <div>
           <h4 className="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">
-            Exposure Breakdown
-          </h4>
+            {tx("Exposure Breakdown")}</h4>
           <div className="flex flex-wrap gap-2">
             {group.exposureGroups.map((eg, idx) => (
               <div key={idx} className="px-3 py-1.5 bg-surface-elevated rounded text-sm">
@@ -91,8 +91,7 @@ export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) 
         {/* Equipment Info */}
         <div>
           <h4 className="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">
-            Equipment
-          </h4>
+            {tx("Equipment")}</h4>
           <div className="flex flex-wrap gap-4 text-sm">
             {group.camera && (
               <div className="flex items-center gap-1.5">
@@ -108,17 +107,17 @@ export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) 
             )}
             {group.gain !== null && (
               <div className="text-content-muted">
-                Gain: <span className="text-content">{group.gain}</span>
+                {tx("Gain:")} <span className="text-content">{group.gain}</span>
               </div>
             )}
             {group.offset !== null && (
               <div className="text-content-muted">
-                Offset: <span className="text-content">{group.offset}</span>
+                {tx("Offset:")} <span className="text-content">{group.offset}</span>
               </div>
             )}
             {group.binning && (
               <div className="text-content-muted">
-                Binning: <span className="text-content">{group.binning}</span>
+                {tx("Binning:")} <span className="text-content">{group.binning}</span>
               </div>
             )}
             {group.avgTemp !== null && (
@@ -133,23 +132,22 @@ export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) 
         {/* Calibrations */}
         <div>
           <h4 className="text-xs font-medium text-content-muted uppercase tracking-wide mb-2">
-            Calibrations
-          </h4>
+            {tx("Calibrations")}</h4>
           <div className="space-y-2">
             <CalibrationRow
-              label="Flat"
+              label={tx("Flat")}
               info={group.flatInfo}
               lightTemp={group.avgTemp}
               warnings={getCalibrationWarnings('flat')}
             />
             <CalibrationRow
-              label="Dark"
+              label={tx("Dark")}
               info={group.darkInfo}
               lightTemp={group.avgTemp}
               warnings={getCalibrationWarnings('dark')}
             />
             <CalibrationRow
-              label="Bias"
+              label={tx("Bias")}
               info={group.biasInfo}
               lightTemp={group.avgTemp}
               warnings={getCalibrationWarnings('bias')}
@@ -166,7 +164,7 @@ export function FilterGroupCard({ group, warnings = [] }: FilterGroupCardProps) 
             >
               {framesExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               <FileImage size={14} />
-              <span>Show {group.frames.length} frames...</span>
+              <span>{tx("Show")} {group.frames.length}  {tx("frames...")}</span>
             </button>
 
             {framesExpanded && (
@@ -189,6 +187,7 @@ interface CalibrationRowProps {
 }
 
 function CalibrationRow({ label, info, lightTemp, warnings = [] }: CalibrationRowProps) {
+  const { tx } = useI18n();
   const tempDelta =
     info && lightTemp !== null && info.avgTemp !== null
       ? Math.abs(lightTemp - info.avgTemp)
@@ -206,8 +205,7 @@ function CalibrationRow({ label, info, lightTemp, warnings = [] }: CalibrationRo
           <>
             <Check size={14} className="text-success" />
             <span>
-              Set #{info.setId} ({info.frameCount} frames
-              {info.avgExptime !== null && ` @ ${formatExptime(info.avgExptime)}`}
+              {tx("Set #")}{info.setId} ({info.frameCount}  {tx("frames")}{info.avgExptime !== null && ` @ ${formatExptime(info.avgExptime)}`}
               {info.avgTemp !== null && `, ${info.avgTemp.toFixed(1)}C`})
             </span>
             {hasTempWarning && (
@@ -222,7 +220,7 @@ function CalibrationRow({ label, info, lightTemp, warnings = [] }: CalibrationRo
         ) : (
           <>
             <X size={14} className="text-content-muted" />
-            <span className="text-content-muted italic">Not linked</span>
+            <span className="text-content-muted italic">{tx("Not linked")}</span>
           </>
         )}
       </div>
@@ -241,15 +239,16 @@ interface FrameListProps {
 }
 
 function FrameList({ frames }: FrameListProps) {
+  const { tx } = useI18n();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-elevated sticky top-0">
         <tr className="text-left text-xs text-content-muted uppercase">
-          <th className="px-3 py-2">Filename</th>
-          <th className="px-3 py-2">Date</th>
-          <th className="px-3 py-2">Exp</th>
-          <th className="px-3 py-2">Temp</th>
-          <th className="px-3 py-2">Calibration</th>
+          <th className="px-3 py-2">{tx("Filename")}</th>
+          <th className="px-3 py-2">{tx("Date")}</th>
+          <th className="px-3 py-2">{tx("Exp")}</th>
+          <th className="px-3 py-2">{tx("Temp")}</th>
+          <th className="px-3 py-2">{tx("Calibration")}</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
@@ -270,6 +269,7 @@ function FrameList({ frames }: FrameListProps) {
 }
 
 function CameraTypeBadge({ type }: { type: CameraType }) {
+  const { tx } = useI18n();
   const isOsc = type === 'osc';
   return (
     <span
@@ -277,7 +277,7 @@ function CameraTypeBadge({ type }: { type: CameraType }) {
         isOsc ? 'bg-success/20 text-success' : 'bg-accent/20 text-accent'
       }`}
     >
-      {isOsc ? 'OSC' : 'Mono'}
+      {isOsc ? 'OSC' : tx("Mono")}
     </span>
   );
 }

@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState, useEffect } from "react";
 import { api } from '../../api';
 import {
@@ -22,6 +23,7 @@ import BehavioralOptionsPanel from "./BehavioralOptionsPanel";
 import ClusteringParametersPanel from "./ClusteringParametersPanel";
 
 export default function CalibrationMatchingConfig() {
+  const { tx } = useI18n();
   const { notify } = useNotifications();
   const [config, setConfig] = useState<ConfigType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -286,7 +288,7 @@ export default function CalibrationMatchingConfig() {
     return (
       <div className="text-center py-8 text-content-muted">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto"></div>
-        <p className="mt-4">Loading calibration config...</p>
+        <p className="mt-4">{tx("Loading calibration config...")}</p>
       </div>
     );
   }
@@ -294,7 +296,7 @@ export default function CalibrationMatchingConfig() {
   if (!config) {
     return (
       <div className="p-4 bg-error-muted border border-error/50 rounded-lg">
-        <p className="text-error">Failed to load calibration configuration</p>
+        <p className="text-error">{tx("Failed to load calibration configuration")}</p>
       </div>
     );
   }
@@ -305,7 +307,7 @@ export default function CalibrationMatchingConfig() {
         <div className="p-4 bg-error-muted border border-error/50 rounded-lg flex items-start gap-3">
           <AlertCircle className="text-error flex-shrink-0 mt-0.5" size={20} />
           <div className="flex-1">
-            <p className="font-medium text-error">Error</p>
+            <p className="font-medium text-error">{tx("Error")}</p>
             <p className="text-sm text-error/80">{error}</p>
           </div>
         </div>
@@ -319,8 +321,7 @@ export default function CalibrationMatchingConfig() {
           />
           <div className="flex-1">
             <p className="font-medium text-success">
-              Configuration saved successfully
-            </p>
+              {tx("Configuration saved successfully")}</p>
           </div>
         </div>
       )}
@@ -331,7 +332,7 @@ export default function CalibrationMatchingConfig() {
           onClick={() => toggleSection("lights")}
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/50 rounded-t-lg"
         >
-          <span className="font-semibold text-lg">For Lights</span>
+          <span className="font-semibold text-lg">{tx("For Lights")}</span>
           {expandedSections.lights ? (
             <ChevronDown size={20} />
           ) : (
@@ -360,7 +361,7 @@ export default function CalibrationMatchingConfig() {
           onClick={() => toggleSection("flats")}
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/50 rounded-t-lg"
         >
-          <span className="font-semibold text-lg">For Flats</span>
+          <span className="font-semibold text-lg">{tx("For Flats")}</span>
           {expandedSections.flats ? (
             <ChevronDown size={20} />
           ) : (
@@ -390,7 +391,7 @@ export default function CalibrationMatchingConfig() {
           onClick={() => toggleSection("darks")}
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/50 rounded-t-lg"
         >
-          <span className="font-semibold text-lg">For Darks</span>
+          <span className="font-semibold text-lg">{tx("For Darks")}</span>
           {expandedSections.darks ? (
             <ChevronDown size={20} />
           ) : (
@@ -420,8 +421,7 @@ export default function CalibrationMatchingConfig() {
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/50 rounded-t-lg"
         >
           <span className="font-semibold text-lg">
-            Clustering Parameters & Thresholds
-          </span>
+            {tx("Clustering Parameters & Thresholds")}</span>
           {expandedSections.clustering ? (
             <ChevronDown size={20} />
           ) : (
@@ -438,19 +438,15 @@ export default function CalibrationMatchingConfig() {
             />
             <div className="mt-4 pt-4 border-t border-border flex items-center justify-between gap-4">
               <p className="text-xs text-content-muted">
-                Clustering changes apply to newly scanned frames. To regroup the
-                already-cataloged calibration frames with these settings, save
-                first, then refresh all cameras. Masters and superseded sets are
-                left untouched.
-              </p>
+                {tx("Clustering changes apply to newly scanned frames. To regroup the already-cataloged calibration frames with these settings, save first, then refresh all cameras. Masters and superseded sets are left untouched.")}</p>
               <button
                 onClick={handleRefreshAllCameras}
                 disabled={refreshingAll || saving}
-                title="Re-cluster the existing calibration sets of every camera using the saved clustering settings"
+                title={tx("Re-cluster the existing calibration sets of every camera using the saved clustering settings")}
                 className="flex items-center gap-2 shrink-0 rounded-lg border border-border bg-surface-hover px-3 py-1.5 text-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw size={14} className={refreshingAll ? "animate-spin" : ""} />
-                {refreshingAll ? "Refreshing…" : "Refresh All Calibration Sets"}
+                {refreshingAll ? tx("Refreshing…") : tx("Refresh All Calibration Sets")}
               </button>
             </div>
           </div>
@@ -463,7 +459,7 @@ export default function CalibrationMatchingConfig() {
           onClick={() => toggleSection("warnings")}
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/50 rounded-t-lg"
         >
-          <span className="font-semibold text-lg">Date Warning Thresholds</span>
+          <span className="font-semibold text-lg">{tx("Date Warning Thresholds")}</span>
           {expandedSections.warnings ? (
             <ChevronDown size={20} />
           ) : (
@@ -473,13 +469,11 @@ export default function CalibrationMatchingConfig() {
         {expandedSections.warnings && (
           <div className="px-4 pt-2 pb-4">
             <p className="text-sm text-content-muted mb-4">
-              Warn when calibration frames are older than these thresholds.
-            </p>
+              {tx("Warn when calibration frames are older than these thresholds.")}</p>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-content-secondary mb-2">
-                  Flat Date Warning (days)
-                </label>
+                  {tx("Flat Date Warning (days)")}</label>
                 <input
                   type="number"
                   value={config.warnings.flat_date_warning_days}
@@ -493,14 +487,12 @@ export default function CalibrationMatchingConfig() {
                   className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-content"
                 />
                 <p className="text-xs text-content-muted mt-2">
-                  Warn if flat frames are older than this many days
-                </p>
+                  {tx("Warn if flat frames are older than this many days")}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-content-secondary mb-2">
-                  Dark Date Warning (days)
-                </label>
+                  {tx("Dark Date Warning (days)")}</label>
                 <input
                   type="number"
                   value={config.warnings.dark_date_warning_days}
@@ -514,14 +506,12 @@ export default function CalibrationMatchingConfig() {
                   className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-content"
                 />
                 <p className="text-xs text-content-muted mt-2">
-                  Warn if dark frames are older than this many days
-                </p>
+                  {tx("Warn if dark frames are older than this many days")}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-content-secondary mb-2">
-                  DarkFlat Date Warning (days)
-                </label>
+                  {tx("DarkFlat Date Warning (days)")}</label>
                 <input
                   type="number"
                   value={config.warnings.darkflat_date_warning_days}
@@ -535,8 +525,7 @@ export default function CalibrationMatchingConfig() {
                   className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-content"
                 />
                 <p className="text-xs text-content-muted mt-2">
-                  Warn if darkflat frames are older than this many days
-                </p>
+                  {tx("Warn if darkflat frames are older than this many days")}</p>
               </div>
             </div>
           </div>
@@ -549,7 +538,7 @@ export default function CalibrationMatchingConfig() {
           onClick={() => toggleSection("preferences")}
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/50 rounded-t-lg"
         >
-          <span className="font-semibold text-lg">Master Preferences</span>
+          <span className="font-semibold text-lg">{tx("Master Preferences")}</span>
           {expandedSections.preferences ? (
             <ChevronDown size={20} />
           ) : (
@@ -559,9 +548,7 @@ export default function CalibrationMatchingConfig() {
         {expandedSections.preferences && (
           <div className="px-4 pt-2 pb-4">
             <p className="text-sm text-content-muted mb-4">
-              Choose whether to prefer Master calibration frames or frame sets
-              when both are available.
-            </p>
+              {tx("Choose whether to prefer Master calibration frames or frame sets when both are available.")}</p>
             <div className="grid grid-cols-2 gap-4">
               {["flat", "dark", "bias", "darkflat"].map((type) => (
                 <div key={type}>
@@ -579,14 +566,11 @@ export default function CalibrationMatchingConfig() {
                     className="w-full bg-surface-hover border border-border rounded px-3 py-2 text-content text-sm"
                   >
                     <option value={MasterPreferenceValues.NoPreference}>
-                      No Preference
-                    </option>
+                      {tx("No Preference")}</option>
                     <option value={MasterPreferenceValues.PreferMaster}>
-                      Prefer Master
-                    </option>
+                      {tx("Prefer Master")}</option>
                     <option value={MasterPreferenceValues.PreferFrameset}>
-                      Prefer Frameset
-                    </option>
+                      {tx("Prefer Frameset")}</option>
                   </select>
                 </div>
               ))}
@@ -603,7 +587,7 @@ export default function CalibrationMatchingConfig() {
           className="flex items-center gap-2 px-6 py-2 bg-accent hover:bg-accent-hover disabled:bg-surface-hover disabled:cursor-not-allowed text-white rounded-lg transition-colors"
         >
           <Save size={18} />
-          {saving ? "Saving..." : "Save Configuration"}
+          {saving ? tx("Saving...") : tx("Save Configuration")}
         </button>
 
         <button
@@ -612,8 +596,7 @@ export default function CalibrationMatchingConfig() {
           className="flex items-center gap-2 px-6 py-2 bg-surface-hover hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
         >
           <RefreshCw size={18} />
-          Reset to Defaults
-        </button>
+          {tx("Reset to Defaults")}</button>
       </div>
     </div>
   );

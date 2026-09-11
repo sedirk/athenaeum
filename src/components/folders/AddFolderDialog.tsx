@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useEffect, useRef, useState } from 'react';
 import { X, Check, Info, AlertCircle, FolderOpen, Loader2 } from 'lucide-react';
 import { api } from '../../api';
@@ -25,6 +26,7 @@ interface AddFolderDialogProps {
 }
 
 export function AddFolderDialog({ isOpen, preselect, scanRoots, coveredCalibrationDir, onClose, onAdded }: AddFolderDialogProps) {
+  const { tx } = useI18n();
   const { notify } = useNotifications();
   const [kind, setKind] = useState<AddableKind | null>(null);
   const [pickedPath, setPickedPath] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export function AddFolderDialog({ isOpen, preselect, scanRoots, coveredCalibrati
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="w-[560px] max-w-[92vw] bg-surface-elevated border border-border rounded-xl p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-content">Add Folder</h3>
+          <h3 className="text-lg font-semibold text-content">{tx("Add Folder")}</h3>
           <button onClick={onClose} className="p-1 rounded text-content-muted hover:text-content hover:bg-surface-hover transition"><X size={18} /></button>
         </div>
 
@@ -131,11 +133,11 @@ export function AddFolderDialog({ isOpen, preselect, scanRoots, coveredCalibrati
             {(['normal', 'archive'] as const).map((k) => (
               <button key={k} onClick={() => setKind(k)} className="w-full flex items-start gap-3 p-3 rounded-lg text-left hover:bg-surface-hover transition">
                 <KindIcon k={k} />
-                <span><span className="block text-sm font-semibold text-content">{KIND_META[k].label}</span>
-                <span className="block text-xs text-content-muted">{KIND_META[k].purpose}</span></span>
+                <span><span className="block text-sm font-semibold text-content">{tx(KIND_META[k].label)}</span>
+                <span className="block text-xs text-content-muted">{tx(KIND_META[k].purpose)}</span></span>
               </button>
             ))}
-            <div className="pt-2 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">Assign a role — one of each</div>
+            <div className="pt-2 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">{tx("Assign a role — one of each")}</div>
             {ROLE_ORDER.map((role) => {
               const taken = takenRolePath(role);
               const rm = ROLE_META[role];
@@ -144,8 +146,8 @@ export function AddFolderDialog({ isOpen, preselect, scanRoots, coveredCalibrati
                   className={`w-full flex items-start gap-3 p-3 rounded-lg text-left transition ${taken ? 'opacity-45 cursor-not-allowed' : 'hover:bg-surface-hover'}`}>
                   <rm.icon size={18} className={`${rm.tint} mt-0.5 shrink-0`} />
                   <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-content">{rm.label} {taken && <Check size={12} className="inline text-success" />}</span>
-                    <span className="block text-xs text-content-muted truncate">{taken ? `already set → ${taken}` : rm.purpose}</span>
+                    <span className="block text-sm font-semibold text-content">{tx(rm.label)} {taken && <Check size={12} className="inline text-success" />}</span>
+                    <span className="block text-xs text-content-muted truncate">{taken ? tx('Already assigned: {path}', { path: taken }) : tx(rm.purpose)}</span>
                   </span>
                 </button>
               );
@@ -157,25 +159,25 @@ export function AddFolderDialog({ isOpen, preselect, scanRoots, coveredCalibrati
         {kind && meta && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-content">
-              <KindIcon k={kind} /> {meta.label}
-              <button onClick={() => { validateSeq.current++; setKind(null); setPickedPath(null); setVerdict(null); setError(null); }} className="ml-auto text-xs text-accent hover:underline">change type</button>
+              <KindIcon k={kind} /> {tx(meta.label)}
+              <button onClick={() => { validateSeq.current++; setKind(null); setPickedPath(null); setVerdict(null); setError(null); }} className="ml-auto text-xs text-accent hover:underline">{tx("change type")}</button>
             </div>
             <div className="flex items-start gap-2 p-3 rounded-lg bg-surface border border-accent/30 text-xs text-content-muted">
               <Info size={14} className="text-accent shrink-0 mt-0.5" />
-              <span>{meta.placementRule}</span>
+              <span>{tx(meta.placementRule)}</span>
             </div>
             <button onClick={pick} disabled={busy} className="flex items-center gap-2 px-4 py-2 bg-surface-hover hover:brightness-110 rounded-lg text-sm text-content transition">
-              <FolderOpen size={16} /> {pickedPath ? 'Pick a different folder…' : 'Choose folder…'}
+              <FolderOpen size={16} /> {pickedPath ? tx("Pick a different folder…") : tx("Choose folder…")}
             </button>
             {pickedPath && (
               <div className="p-3 rounded-lg bg-surface border border-border">
                 <div className="font-mono text-xs text-content break-all">{pickedPath}</div>
-                {verdict === null && !error && <div className="mt-1 text-xs text-content-muted flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> checking…</div>}
+                {verdict === null && !error && <div className="mt-1 text-xs text-content-muted flex items-center gap-1"><Loader2 size={12} className="animate-spin" />  {tx("checking…")}</div>}
                 {verdict?.ok && (
                   <div className="mt-1 text-xs text-success flex items-center gap-1">
                     <Check size={12} />
                     {verdict.placement === 'covered'
-                      ? 'Inside a monitored folder — stored as the library destination; the parent folder keeps scanning it.'
+                      ? tx("Inside a monitored folder — stored as the library destination; the parent folder keeps scanning it.")
                       : verdict.placement === 'standalone'
                         ? 'Standalone — becomes its own scanned library folder.'
                         : 'Looks good.'}
@@ -190,10 +192,10 @@ export function AddFolderDialog({ isOpen, preselect, scanRoots, coveredCalibrati
             )}
             {error && <div className="text-xs text-error">{error}</div>}
             <div className="flex justify-end gap-2 pt-1">
-              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-content-muted hover:bg-surface-hover transition">Cancel</button>
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-content-muted hover:bg-surface-hover transition">{tx("Cancel")}</button>
               <button onClick={confirmAdd} disabled={busy || !verdict?.ok}
                 className="px-4 py-2 rounded-lg text-sm font-semibold bg-accent hover:bg-accent-hover text-surface transition disabled:opacity-50 disabled:cursor-not-allowed">
-                {busy ? 'Adding…' : 'Add'}
+                {busy ? tx("Adding…") : tx("Add")}
               </button>
             </div>
           </div>

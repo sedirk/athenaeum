@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
@@ -20,6 +21,7 @@ export function RecheckButton({
   onRecheck: () => Promise<void>;
   disabled?: boolean;
 }) {
+  const { tx } = useI18n();
   const [checking, setChecking] = useState(false);
   const [stillOffline, setStillOffline] = useState(false);
 
@@ -47,11 +49,11 @@ export function RecheckButton({
         className="flex items-center gap-2 px-3 py-1.5 rounded border border-error/50 text-error text-sm hover:bg-error/10 transition disabled:opacity-50"
       >
         <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
-        {checking ? 'Checking…' : 'Check again'}
+        {checking ? tx("Checking…") : tx("Check again")}
       </button>
       {/* `w-full` inside the banner's flex-wrap row puts this on its own line. */}
       {stillOffline && !checking && (
-        <p className="w-full text-xs text-error/80">Still not reachable.</p>
+        <p className="w-full text-xs text-error/80">{tx("Still not reachable.")}</p>
       )}
     </>
   );

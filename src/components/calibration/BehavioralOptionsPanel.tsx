@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { BehavioralOptions } from "../../types/calibration-config";
 
 interface BehavioralOptionsPanelProps {
@@ -13,6 +14,7 @@ export default function BehavioralOptionsPanel({
   onUpdate,
   showFallbackInfo = false,
 }: BehavioralOptionsPanelProps) {
+  const { tx } = useI18n();
   // Don't render if no options apply to this source type
   // (only darks and flats have behavioral options)
   const hasOptions = sourceType === "darks" || sourceType === "flats";
@@ -26,7 +28,7 @@ export default function BehavioralOptionsPanel({
 
   return (
     <div className="bg-surface-elevated/50 rounded-lg p-4">
-      <h4 className="text-sm font-medium text-content-secondary mb-3">Options</h4>
+      <h4 className="text-sm font-medium text-content-secondary mb-3">{tx("Options")}</h4>
       <div className="space-y-3">
         {sourceType === "darks" && (
           <label className="flex items-center gap-3 cursor-pointer">
@@ -44,11 +46,9 @@ export default function BehavioralOptionsPanel({
             />
             <div>
               <span className="text-sm text-content">
-                Use BIAS for Dark Optimization
-              </span>
+                {tx("Use BIAS for Dark Optimization")}</span>
               <p className="text-xs text-content-muted">
-                Link Bias sets as sub-calibration to Dark sets
-              </p>
+                {tx("Link Bias sets as sub-calibration to Dark sets")}</p>
             </div>
           </label>
         )}
@@ -65,18 +65,16 @@ export default function BehavioralOptionsPanel({
             />
             <div>
               <span className="text-sm text-content">
-                Use BIAS if no Darks Found
-              </span>
+                {tx("Use BIAS if no Darks Found")}</span>
               <p className="text-xs text-content-muted">
-                Fallback to Bias if Dark calibration is not available
-              </p>
+                {tx("Fallback to Bias if Dark calibration is not available")}</p>
             </div>
           </label>
         )}
 
         {showFallbackInfo && safeOptions.fallback_chain.length > 0 && (
           <div className="mt-2 p-2 bg-surface-hover/50 rounded text-xs text-content-muted">
-            <span className="font-medium">Fallback Chain:</span>{" "}
+            <span className="font-medium">{tx("Fallback Chain:")}</span>{" "}
             {safeOptions.fallback_chain.map((type, i) => (
               <span key={type}>
                 <span className="capitalize">{type}</span>
@@ -84,9 +82,7 @@ export default function BehavioralOptionsPanel({
               </span>
             ))}
             <p className="mt-1 text-content-muted">
-              For Flats, the system will try DarkFlat first, then Dark, then
-              Bias
-            </p>
+              {tx("For Flats, the system will try DarkFlat first, then Dark, then Bias")}</p>
           </div>
         )}
       </div>
