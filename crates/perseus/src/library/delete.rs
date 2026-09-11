@@ -779,6 +779,7 @@ impl DeleteReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::toml_path;
 
     use athenaeum_core::sync::store::StandaloneSyncStore;
 
@@ -796,10 +797,10 @@ mod tests {
         std::fs::create_dir_all(&cap).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         let toml = format!(
-            "capture_dir=\"{}\"\ndata_dir=\"{}\"\npairing_ticket=\"t\"\nmode=\"manual\"\n\
+            "capture_dir={}\ndata_dir={}\npairing_ticket=\"t\"\nmode=\"manual\"\n\
              [retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
-            cap.display(),
-            data.display()
+            toml_path(&cap),
+            toml_path(&data)
         );
         let config = Config::from_toml_str(&toml).unwrap();
         (tmp, config, cap)
@@ -972,7 +973,17 @@ mod tests {
     #[test]
     fn an_internal_directory_is_refused_once_and_never_walked() {
         let (_tmp, config, cap) = test_config(true);
-        let db = write(&cap, ".perseus/perseus.db", b"x");
+        // A REAL database at the agent's own path, opened before the walk.
+        //
+        // This used to write a one-byte fake there and open it through
+        // `stores()` below, which is not portable: SQLite silently overwrites a
+        // short non-database file on macOS/Linux — so the "survives" assertion
+        // passed while the fixture's own bytes had already been destroyed by
+        // the opener — and refuses it on Windows with SQLITE_NOTADB ("file is
+        // not a database"). The agent holds its database open while a delete
+        // pass runs, so this is also the production shape.
+        let stores = stores(&config);
+        let db = config.db_path();
         write(&cap, ".perseus/logs/agent.log", b"x");
         let own = write(&cap, "a.fits", b"x");
 
@@ -997,9 +1008,11 @@ mod tests {
             }
         );
 
-        stores(&config).perform(&plan);
+        stores.perform(&plan);
         assert!(!own.exists());
         assert!(db.exists(), "the agent's own database survives");
+        StandaloneSyncStore::open(&db)
+            .expect("the agent's own database is still a usable database afterwards");
     }
 
     /// The fatal classes, with the stable prefixes the route maps to statuses.

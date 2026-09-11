@@ -2,6 +2,7 @@ import { RefreshCw, Target, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useI18n } from '../i18n/I18nContext';
+import { HistoryNav } from '../components/HistoryNav';
 
 export default function Projects() {
   const { t } = useI18n();
@@ -12,6 +13,7 @@ export default function Projects() {
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-3">
+        <HistoryNav />
         <Users size={20} className="text-content-secondary" />
         <h1 className="text-lg font-semibold text-content">{t('projects.title')}</h1>
         <button

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Trash2, RotateCcw, Loader2, Filter, ChevronDown, ChevronRight, Square, CheckSquare, XSquare, Folder, AlertOctagon } from 'lucide-react';
 import { api } from '../api';
+import { HistoryNav } from '../components/HistoryNav';
 import { format } from 'date-fns';
 import type { BlackHoleEntry } from '../types/models';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -350,14 +351,17 @@ export default function BlackHole() {
       {/* Header */}
       <div className="mb-4 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-3xl font-bold">{t('blackHole.title')}</h2>
-            <p className="text-content-muted mt-1">
-              {t('blackHole.filesSummary', { count: entries.length, size: formatSize(totalSize) })}
-              {selectionCount > 0 && (
-                <span className="text-warning ml-2">{t('blackHole.selected', { count: selectionCount })}</span>
-              )}
-            </p>
+          <div className="flex items-center gap-2">
+            <HistoryNav />
+            <div>
+              <h2 className="text-3xl font-bold">{t('blackHole.title')}</h2>
+              <p className="text-content-muted mt-1">
+                {t('blackHole.filesSummary', { count: entries.length, size: formatSize(totalSize) })}
+                {selectionCount > 0 && (
+                  <span className="text-warning ml-2">{t('blackHole.selected', { count: selectionCount })}</span>
+                )}
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

@@ -8,6 +8,10 @@
 //! ```toml
 //! capture_dir = "/data/capture"
 //! data_dir = "/var/lib/perseus"
+//! # On Windows, quote paths with SINGLE quotes — in a double-quoted TOML
+//! # string every backslash is an escape sequence and the file will not parse:
+//! #   capture_dir = 'C:\Users\me\Astro'
+//! #   data_dir    = 'C:\ProgramData\perseus'
 //! mode = "auto"                             # "auto" | "manual" | "scheduled"
 //! auto_quiet_secs = 60                       # auto: flush after N idle seconds
 //! schedule_times = ["06:00", "14:30"]        # scheduled: local wall-clock send times
@@ -450,6 +454,28 @@ pub struct Config {
     pub max_upload_mbps: u32,
 }
 
+/// A Windows path in a double-quoted TOML value is the most likely reason a
+/// hand-written `perseus.toml` will not parse, and the parser's own complaint
+/// ("too few unicode value digits") gives the user nothing to act on. Perseus
+/// ships a Windows installer, so this is a first-run experience, not a
+/// theoretical one.
+///
+/// TOML basic strings treat a backslash as an escape introducer, so a Windows
+/// path is read as a truncated unicode escape. Single-quoted *literal* strings
+/// do no escape processing at all, which is the fix worth naming.
+///
+/// Returns a space-prefixed sentence, or an empty string when the input has no
+/// backslash in it and the hint would only be noise.
+fn windows_path_hint(text: &str) -> String {
+    if !text.contains('\\') {
+        return String::new();
+    }
+    " A backslash in a double-quoted value is read as an escape sequence, so a \
+     Windows path must be written in single quotes, e.g. capture_dir = \
+     'C:\\Users\\me\\Astro' (or with every backslash doubled)."
+        .to_string()
+}
+
 impl Config {
     /// Parse + strictly validate a config from a TOML file on disk.
     pub fn load(path: &Path) -> Result<Self> {
@@ -527,11 +553,12 @@ impl Config {
     fn parse_toml(text: &str) -> Result<Self> {
         toml::from_str(text).map_err(|e| {
             anyhow::anyhow!(
-                "could not parse config TOML: {e}. Expected keys: capture_dir, \
+                "could not parse config TOML: {e}.{} Expected keys: capture_dir, \
                  data_dir, mode = \"auto\", a send route (either an [account] table \
                  with targets = [..], or pairing_ticket), and a [retention] table \
                  with policy = keep_everything|on_confirm|keep_days|disk_pct and \
-                 dry_run = true"
+                 dry_run = true",
+                windows_path_hint(text)
             )
         })
     }
@@ -967,6 +994,7 @@ pub fn ensure_config_exists(path: &Path) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::toml_path;
 
     /// The contract-shape TOML with `capture_dir` interpolated. `capture_dir`
     /// must exist on disk (validate() now enforces that — see
@@ -976,7 +1004,7 @@ mod tests {
     fn good_toml(capture_dir: &Path) -> String {
         format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/var/lib/perseus"
 pairing_ticket = "ticket-abc"
 mode = "auto"
@@ -984,7 +1012,7 @@ mode = "auto"
 policy = "keep_everything"
 dry_run = true
 "#,
-            capture_dir.display()
+            toml_path(&capture_dir)
         )
     }
 
@@ -994,8 +1022,8 @@ dry_run = true
     /// table. Used by the task-9 web-bind tests.
     fn good_toml_top(capture_dir: &Path) -> String {
         format!(
-            "capture_dir = \"{}\"\ndata_dir = \"/var/lib/perseus\"\npairing_ticket = \"ticket-abc\"\nmode = \"auto\"\n",
-            capture_dir.display()
+            "capture_dir = {}\ndata_dir = \"/var/lib/perseus\"\npairing_ticket = \"ticket-abc\"\nmode = \"auto\"\n",
+            toml_path(&capture_dir)
         )
     }
 
@@ -1024,9 +1052,9 @@ dry_run = true
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
         let toml = toml_with(&format!(
-            "capture_dirs = [\"{}\", \"{}\"]",
-            a.path().display(),
-            b.path().display()
+            "capture_dirs = [{}, {}]",
+            toml_path(a.path()),
+            toml_path(b.path())
         ));
         let c = Config::from_toml_str(&toml).expect("array form is valid");
         assert_eq!(
@@ -1040,7 +1068,7 @@ dry_run = true
     #[test]
     fn capture_dir_singular_still_works() {
         let a = tempfile::tempdir().unwrap();
-        let toml = toml_with(&format!("capture_dir = \"{}\"", a.path().display()));
+        let toml = toml_with(&format!("capture_dir = {}", toml_path(a.path())));
         let c = Config::from_toml_str(&toml).expect("singular form is valid");
         assert_eq!(c.capture_dirs_resolved(), vec![a.path().to_path_buf()]);
     }
@@ -1052,8 +1080,8 @@ dry_run = true
     fn both_forms_rejected() {
         let a = tempfile::tempdir().unwrap();
         let toml = toml_with(&format!(
-            "capture_dir = \"{d}\"\ncapture_dirs = [\"{d}\"]",
-            d = a.path().display()
+            "capture_dir = {d}\ncapture_dirs = [{d}]",
+            d = toml_path(a.path())
         ));
         let err = Config::from_toml_str(&toml).expect_err("both forms must be rejected");
         assert!(
@@ -1094,14 +1122,14 @@ dry_run = true
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/d"
 pairing_ticket = "t"
 mode = "auto"
 [retention]
 policy = "on_confirm"
 "#,
-            capture.path().display()
+            toml_path(capture.path())
         );
         let cfg = Config::from_toml_str(&text).expect("valid config");
         assert!(cfg.retention.dry_run, "dry_run must default to true");
@@ -1112,12 +1140,12 @@ policy = "on_confirm"
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/d"
 pairing_ticket = "t"
 mode = "auto"
 "#,
-            capture.path().display()
+            toml_path(capture.path())
         );
         let cfg = Config::from_toml_str(&text).expect("valid config");
         assert_eq!(cfg.retention.policy, RetentionPolicy::KeepEverything);
@@ -1134,8 +1162,8 @@ mode = "auto"
             ("disk_pct", RetentionPolicy::DiskPct),
         ] {
             let text = format!(
-                "capture_dir=\"{}\"\ndata_dir=\"/d\"\npairing_ticket=\"t\"\nmode=\"auto\"\n[retention]\npolicy=\"{s}\"\ndry_run=true\n",
-                capture.path().display()
+                "capture_dir={}\ndata_dir=\"/d\"\npairing_ticket=\"t\"\nmode=\"auto\"\n[retention]\npolicy=\"{s}\"\ndry_run=true\n",
+                toml_path(capture.path())
             );
             let cfg = Config::from_toml_str(&text).expect("valid");
             assert_eq!(cfg.retention.policy, want, "policy {s}");
@@ -1425,7 +1453,7 @@ mode = "auto"
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/d"
 mode = "auto"
 targets = ["Studio Mac"]
@@ -1435,7 +1463,7 @@ email = "me@example.com"
 policy = "keep_everything"
 dry_run = true
 "#,
-            capture.path().display()
+            toml_path(capture.path())
         );
         let cfg = Config::from_toml_str(&text).expect("account+targets config is valid");
         assert!(cfg.pairing_ticket.is_none(), "no ticket needed with [account] + targets");
@@ -1455,7 +1483,7 @@ dry_run = true
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/d"
 mode = "auto"
 device_name = "Observatory Pi"
@@ -1468,7 +1496,7 @@ allow_default_relays = true
 policy = "keep_everything"
 dry_run = true
 "#,
-            capture.path().display()
+            toml_path(capture.path())
         );
         let cfg = Config::from_toml_str(&text).unwrap();
         assert_eq!(cfg.device_name.as_deref(), Some("Observatory Pi"));
@@ -1484,8 +1512,8 @@ dry_run = true
     fn no_send_route_is_rejected() {
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
-            "capture_dir=\"{}\"\ndata_dir=\"/d\"\nmode=\"auto\"\n[account]\nemail=\"me@example.com\"\n[retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
-            capture.path().display()
+            "capture_dir={}\ndata_dir=\"/d\"\nmode=\"auto\"\n[account]\nemail=\"me@example.com\"\n[retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
+            toml_path(capture.path())
         );
         let err = Config::from_toml_str(&text).expect_err("no send route must fail");
         let msg = format!("{err:#}");
@@ -1505,8 +1533,8 @@ dry_run = true
     fn account_only_no_targets_is_parse_valid_but_not_run_ready() {
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
-            "capture_dir=\"{}\"\ndata_dir=\"/d\"\nmode=\"auto\"\n[account]\nemail=\"me@example.com\"\n[retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
-            capture.path().display()
+            "capture_dir={}\ndata_dir=\"/d\"\nmode=\"auto\"\n[account]\nemail=\"me@example.com\"\n[retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
+            toml_path(capture.path())
         );
         // Parse-valid tier: structurally sound, so the file may be saved/edited.
         Config::from_toml_str_lenient(&text)
@@ -1525,8 +1553,8 @@ dry_run = true
     fn targets_parse_as_ordered_list() {
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
-            "capture_dir=\"{}\"\ndata_dir=\"/d\"\nmode=\"auto\"\ntargets=[\"a\", \"b\", \"c\"]\n[account]\n[retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
-            capture.path().display()
+            "capture_dir={}\ndata_dir=\"/d\"\nmode=\"auto\"\ntargets=[\"a\", \"b\", \"c\"]\n[account]\n[retention]\npolicy=\"keep_everything\"\ndry_run=true\n",
+            toml_path(capture.path())
         );
         let cfg = Config::from_toml_str(&text).expect("targets list is valid");
         assert_eq!(cfg.targets, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
@@ -1549,7 +1577,7 @@ dry_run = true
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/d"
 pairing_ticket = "t"
 mode = "auto"
@@ -1558,7 +1586,7 @@ stability_secs = 0
 policy = "keep_everything"
 dry_run = true
 "#,
-            capture.path().display()
+            toml_path(capture.path())
         );
         assert!(Config::from_toml_str(&text).is_err());
     }
@@ -1632,8 +1660,8 @@ mode = "auto"
     fn boot_level_downgrades_only_the_existence_arm() {
         let a = tempfile::tempdir().unwrap();
         let both = toml_with(&format!(
-            "capture_dir = \"{d}\"\ncapture_dirs = [\"{d}\"]",
-            d = a.path().display()
+            "capture_dir = {d}\ncapture_dirs = [{d}]",
+            d = toml_path(a.path())
         ));
         let err = Config::from_toml_str_lenient_for_boot(&both)
             .expect_err("both forms is still a broken file at boot");
@@ -1682,7 +1710,7 @@ mode = "auto"
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
             r#"
-capture_dir = "{}"
+capture_dir = {}
 data_dir = "/d"
 pairing_ticket = "t"
 mode = "auto"
@@ -1693,7 +1721,7 @@ keep_days = 7
 disk_max_pct = 80
 interval_secs = 600
 "#,
-            capture.path().display()
+            toml_path(capture.path())
         );
         let cfg = Config::from_toml_str(&text).expect("valid config");
         assert_eq!(cfg.retention.keep_days, 7);
@@ -1725,19 +1753,54 @@ interval_secs = 600
     fn zero_keep_days_is_rejected() {
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
-            "capture_dir=\"{}\"\ndata_dir=\"/d\"\npairing_ticket=\"t\"\nmode=\"auto\"\n[retention]\npolicy=\"keep_days\"\ndry_run=true\nkeep_days=0\n",
-            capture.path().display()
+            "capture_dir={}\ndata_dir=\"/d\"\npairing_ticket=\"t\"\nmode=\"auto\"\n[retention]\npolicy=\"keep_days\"\ndry_run=true\nkeep_days=0\n",
+            toml_path(capture.path())
         );
         let err = Config::from_toml_str(&text).expect_err("keep_days=0 must fail");
         assert!(err.chain().any(|c| c.to_string().contains("keep_days")));
+    }
+
+    /// A Windows user hand-writing the obvious thing gets a parse error about
+    /// "unicode value digits" that says nothing about what to do about it.
+    /// Perseus ships a Windows installer, so this is a first-run experience:
+    /// the error must name the cause and show the fix.
+    #[test]
+    fn a_windows_path_parse_failure_explains_the_backslash() {
+        let text = "capture_dir = \"C:\\Users\\me\\Astro\"\ndata_dir = \"C:\\ProgramData\\perseus\"\n";
+
+        let err = Config::from_toml_str(text).expect_err("a backslash path must not parse");
+        let msg = format!("{err:#}");
+
+        assert!(
+            msg.contains("backslash"),
+            "the error must name the backslash as the cause: {msg}"
+        );
+        assert!(
+            msg.contains("single quotes"),
+            "the error must point at single-quoted strings as the fix: {msg}"
+        );
+    }
+
+    /// The hint is for backslash-bearing input only — a unix config that fails
+    /// to parse for an unrelated reason must not be told about Windows paths.
+    #[test]
+    fn a_unix_parse_failure_carries_no_windows_hint() {
+        let err = Config::from_toml_str("[unclosed table\n").expect_err("must not parse");
+
+        let msg = format!("{err:#}");
+
+        assert!(
+            !msg.contains("backslash"),
+            "no Windows hint belongs on a backslash-free config: {msg}"
+        );
     }
 
     #[test]
     fn out_of_range_disk_max_pct_is_rejected() {
         let capture = tempfile::tempdir().unwrap();
         let text = format!(
-            "capture_dir=\"{}\"\ndata_dir=\"/d\"\npairing_ticket=\"t\"\nmode=\"auto\"\n[retention]\npolicy=\"disk_pct\"\ndry_run=true\ndisk_max_pct=150\n",
-            capture.path().display()
+            "capture_dir={}\ndata_dir=\"/d\"\npairing_ticket=\"t\"\nmode=\"auto\"\n[retention]\npolicy=\"disk_pct\"\ndry_run=true\ndisk_max_pct=150\n",
+            toml_path(capture.path())
         );
         let err = Config::from_toml_str(&text).expect_err("disk_max_pct=150 must fail");
         assert!(err.chain().any(|c| c.to_string().contains("disk_max_pct")));
@@ -1851,8 +1914,8 @@ interval_secs = 600
         // both capture forms set is a structural misconfiguration, not a setup gap
         let a = tempfile::tempdir().unwrap();
         let text = format!(
-            "data_dir = \"/d\"\nmode = \"auto\"\ncapture_dir = \"{d}\"\ncapture_dirs = [\"{d}\"]\n",
-            d = a.path().display()
+            "data_dir = \"/d\"\nmode = \"auto\"\ncapture_dir = {d}\ncapture_dirs = [{d}]\n",
+            d = toml_path(a.path())
         );
         Config::from_toml_str_lenient(&text).expect_err("both forms rejected even leniently");
     }
@@ -1860,7 +1923,7 @@ interval_secs = 600
     #[test]
     fn setup_needs_matrix() {
         let dir = tempfile::tempdir().unwrap();
-        let dirs_line = format!("capture_dirs = [\"{}\"]", dir.path().display());
+        let dirs_line = format!("capture_dirs = [{}]", toml_path(dir.path()));
         let parse = |body: &str| {
             Config::from_toml_str_lenient(&format!("data_dir = \"/d\"\nmode = \"auto\"\n{body}\n"))
                 .unwrap()

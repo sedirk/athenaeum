@@ -24,20 +24,30 @@ received file's path was stored with a mixed separator on Windows, now fixed in
 `sync/ingest.rs` and, by the same shape, in `sync/project_ingest.rs`) — but no
 single Windows run has yet reported `0 failed` for the whole crate after all
 eight tasks landed; the closest confirmed readings are 34 then 31, taken
-mid-cycle. The `windows-latest` CI job exists (`.github/workflows/ci.yml`) and
-runs on every push, but stays `continue-on-error: true` and non-blocking until
-a workspace-wide green run is actually observed.
+mid-cycle. That gap is now closed — see the workspace-wide green reading
+below. The `windows-latest` CI job exists (`.github/workflows/ci.yml`) and runs
+on every push.
 
-**Non-core Windows surface is unmeasured and known-red.** Nothing in this cycle
-touched `athenaeum-tauri`, `athenaeum-web` or `perseus`, and the CI job's
-`cargo test --workspace` reaches all of them. Two known instances of the exact
-family this cycle fixed:
-`athenaeum-web/src/routes/scan_roots.rs:526` compares a raw `canonicalize()`
-against a value production stores normalized — the same family as this cycle's
-A/E. `crates/perseus/src/` has 14 slash-literal `join("M31/…")` fixture sites
-(3 in `pending.rs`, 3 in `library.rs`, 6 in `web.rs`, 2 in `library/delete.rs`)
-— the same construction the scanner sweep (family D/H) fixed in
-`athenaeum-core`.
+**Windows is measured green, workspace-wide.** At `6dcff6fe`, twice, with the
+CI job's own command: 41 binaries, 2529 passed, 0 failed, exit 0 —
+`athenaeum-core` 1728, `perseus` 439, `athenaeum-web` 27, `athenaeum-lib` 9.
+The first fully green Windows workspace run in the project's history. perseus
+went 227 → 31 → 0 across two fixes; the whole 227 was one cause (a path
+spliced into a TOML basic string) wearing four symptoms — a parse error, nine
+supervisor `Elapsed(())` timeouts, one `expect_err` that succeeded for the
+wrong reason, and 27 more hidden in raw-string fixtures a first, too-narrow
+drift guard could not see.
+
+**One measurement is still owed on real CI hardware.** Every green reading is
+from one developer Windows box (31.5 GB, `-j 4`). A `windows-latest` runner is
+4 CPUs and 16 GB with no such headroom, and no amount of measuring on that box
+settles it — the first run on the actual runner is the only thing that will.
+
+**`crates/perseus/src/` still has 14 slash-literal `join("M31/…")` fixture
+sites** (3 in `pending.rs`, 3 in `library.rs`, 6 in `web.rs`, 2 in
+`library/delete.rs`) — the same construction the scanner sweep (family D/H)
+fixed in `athenaeum-core`. They pass on Windows today; they were never the
+cause of perseus's 227 and are unswept, not cleared.
 
 **23 unswept slash-joins in `archive/*` tests, plus 3 in export tests.**
 Deliberately not swept this cycle: nothing there fails today and nothing there
@@ -94,26 +104,53 @@ never ran the other 40 — the output was byte-identical to a core-only run.
 Found by running the job's own command on a real Windows machine, after every
 review had passed the job.
 
-**perseus: 227 Windows failures, 217 from one cause.** TOML basic strings
-treat `\` as an escape introducer, so every fixture that hand-builds config
-TOML with a Windows path fails to parse (`too few unicode value digits` on
-`\U` in `C:\Users`). The fix is single-quoted TOML literal strings in the
-fixture builders. Deliberately deferred: it is a different crate and a third
-construction of the "Windows path meets a string format" theme, and —
-decisively — 9 undiagnosed supervisor/run timeouts keep perseus red
-regardless, so fixing the 217 does not unblock the gate.
+**Five tests passed vacuously this cycle, and re-measurement found none of
+them.** Three in `scanner/mod.rs` asserted absence at a path the catalog could
+never spell. One was an `expect_err` that succeeded because the config failed
+to parse, never reaching the condition it named. The fifth is the one worth
+remembering, because the platform difference was in a **dependency** rather
+than in our own code: `library/delete.rs` wrote a one-byte fake `perseus.db`
+and then opened it, and SQLite silently **overwrites** a short non-database
+file on macOS/Linux while refusing it on Windows (`SQLITE_NOTADB`). So "the
+agent's own database survives" passed on macOS while the opener had already
+destroyed the bytes it claimed to protect. A green suite is not evidence that
+its assertions mean anything; only reading them is.
 
-**perseus: 9 undiagnosed timeouts** ("first launch never reached Running:
-Elapsed(())") plus 1 assertion on a `disk_max_pct` error chain. The only
-genuinely unknown part of the Windows surface. May be downstream of the
-config failures, may be Windows timing, may be a real defect.
+**A drift guard is only as wide as the spelling it matches.** The perseus
+guard shipped matching escaped quotes (`"data_dir = \"{}\""`) and reported the
+crate clean while seven raw-string fixtures (`r#"data_dir = "{}""#`) still
+carried the bug — 27 failures behind a green guard. It was widened to look
+inside raw-string literals too. Both perseus guards do line- and
+substring-oriented matching over source, so they are only trustworthy on an
+LF working tree; the Windows box agrees with macOS *because* of the forced
+`git rm --cached -r . && git reset --hard` earlier in this cycle. A fresh
+Windows clone that does not honour `.gitattributes` should not be assumed to
+give the same reading.
 
-**A user-facing documentation gap, not a code bug.** perseus production
-never writes config TOML — it only reads a hand-written file — but a Windows
-user writing `capture_dir = "C:\Users\me\Astro"` hits the identical confusing
-parse error, and the documented example at `crates/perseus/src/config.rs:9`
-is Unix-only. If perseus is supported on Windows, that example should show a
-Windows-safe form.
+**Windows runs ZERO collab tests, and the dead-code warnings are the only sign
+of it.** 11 collab tests are `#[cfg(unix)]` (8 in `api/collab_exchange.rs`, 3 in
+`api/collab_e2e_tests.rs`), so on Windows they do not compile and their ~17
+helper functions warn as never-used — that is 17 of the 28 warnings the Windows
+job emits, against 3 on Linux. The stated reason for the gate is "a multi-thread
+runtime, because the loopback engines/receivers run their event loops on
+background tasks", which Tokio supports on Windows, so the gate looks historical
+rather than reasoned. Nobody has tried removing it.
+
+**Do not "clean up" those warnings by deleting the helpers or adding
+`#[allow(dead_code)]`** — that erases the only signal that a whole subsystem is
+unmeasured on a platform whose CI job is now blocking. The two honest moves are
+to make the tests run on Windows (gaining real coverage, and the warnings go
+away as a side effect) or to put the same `#[cfg(unix)]` on the helpers and keep
+this entry. Note collab coverage is already thin: 9 further collab tests are
+`#[ignore]`d pending the publish rework (calibrated-export v2 §8a, decision C).
+
+**The two `--skip`s in the Windows CI job are load-bearing, not cosmetic.**
+`ingest_releases_conn_between_frames` is not fixed, it is skipped — measured
+failing 4 of 5 isolated runs on the Windows box. `unclean_shutdown_mid_transfer_resumes_on_restart`
+is skipped alongside it. Whoever removes either skip should expect the job to
+start failing intermittently, and now that the job is a candidate to become
+blocking, that is a trap rather than a nuisance. Both skips are also on the
+Linux job, so the commands stay identical.
 
 **The `format!("{x}/y.fits")` construction is a third member of this class**,
 invisible to a `join("…/…")` grep. 18 such sites existed in
@@ -149,6 +186,62 @@ They read like bugs; they are not. Re-proposing them costs a cycle every time.
 
 Newest first. Every cycle below is code-complete with green gates and a clean final
 review; what is missing is a human running the flow on real data.
+
+### Lights + calibration sets export lands raw originals, not built masters (2026-09-08)
+
+Owner report: the "Lights + calibration sets" mode exported Athenaeum-built
+masters. Root cause: a master build repoints every consumer link onto the master
+(`register_master` step 5), and the sets-mode transform was a no-op over the
+linked tree. Fix: `export::data_collector::resolve_raw_calibration_sets` swaps
+each built master for the raw set it superseded, following the raw set's own
+links; imported masters stay (warning); originals not on disk block the mode up
+front (`ExportReadiness.missing_raw_calibration_files`, both export and send).
+Pinned by six collector/summary tests, one send test and two readiness tests.
+
+- Export a set whose darks AND flats have built masters, mode **Lights +
+  calibration sets**: the tree and the disk must hold the raw darks under
+  `DARKS_<raw id>` and the raw flats under `FLAT_<raw id>`, and no
+  `master_*.fits` anywhere. The tab's file count must equal what landed.
+  **Lights + masters** on the same set must still land only the master files.
+- Same set after **Archive originals** on one of those raw sets: the sets-mode
+  radio must read "N raw calibration file(s) missing on disk — restore from
+  archive first" and the tab must fall back to another mode; restore the
+  archive and the mode comes back.
+- A frame set linked to an IMPORTED master (dropped into the Calibration
+  Library by hand): the sets mode must still run, land the master file, and
+  the completion notification's warnings must name the set as an imported
+  master exported as is.
+- Frame-set **Send** in the sets mode after a build: the receiver must get the
+  raw frames (regrouped into sets by its post-package pass), not the master.
+
+The companion Folders change from the same evening — the Missing Files panel
+now also renders on ROLE folders, so a master whose file is gone can be purged
+(and its raw set un-superseded) from the Calibration Library rather than only
+from Equipment — is verified and needs no smoke: click-through on the web build
+plus the owner's own confirmation in the desktop dev build, 2026-09-08.
+
+### Plate-solve input-gate controls (2026-09-07)
+
+Backlog v0.5.6 item 1. Frontend-only: `PlateSolveSettingsPanel.tsx` grew a
+**Batch Concurrency** field in Solver Parameters and an **Input Gate** section
+(`input_gate_enabled` toggle, `input_max_eccentricity`, `input_min_trail_r2`,
+the two numbers disabled while the toggle is off). No Rust change — the three
+commands already round-tripped the whole struct, which is why the fields
+persisted without controls. Gate run: `npx tsc --noEmit` clean. There are no
+frontend tests in this repo to add to.
+
+- The whole acceptance check is by hand: the toggle and both numbers survive
+  Save → restart; **Reset to Defaults** puts back 0.85 / 0.65 / on; the three
+  fields that were already on the tab still save; and a frame the gate
+  previously refused attempts a solve again once the toggle is off.
+- The copy states the measured reference ranges and says plainly that tightening
+  will **not** catch more trailed frames (backlog item 4: the full analysis path
+  under-reports eccentricity on exactly those). Worth reading once on screen —
+  it is the sentence the retracted v0.5.5 release note got wrong.
+- Owner decision, 2026-09-07: the acceptance-gate group
+  (`blind_*`, 7 fields) stays unexposed. It is what stopped v0.5.5's false
+  16–193x solutions from reaching the catalog. If it ever surfaces it belongs
+  behind an "Advanced" disclosure naming the failure it prevents.
 
 ### Integration throughput (2026-09-06)
 
@@ -684,3 +777,23 @@ cycle, so anything from them that matters later belongs here or in a plan.
   frames finally show every pixel the sensor recorded.
 - The Blink image cache is now bounded in megabytes as well as in frame count, so a
   full-resolution session cannot quietly grow to gigabytes.
+- The plate-solve input gate — the check that refuses a frame whose stars are
+  streaks before a solve is attempted — now has controls in Settings → Plate
+  Solving: an on/off toggle and the two thresholds it compares. The worker count
+  for batch solving is adjustable in the same place.
+- Deleting a missing file that happens to be a master no longer strands the raw
+  frames it was built from: the source set goes back to being matchable, exactly
+  as it does when a master is removed any other way.
+- Files that could not be read during a scan can now be revealed in the file
+  manager straight from the scan-error list.
+- A folder whose drive went away can be re-checked in place. Plug the drive back
+  in, press **Check again**, and the folder comes back — no more scanning some
+  other folder to make the app notice.
+- The **Lights + calibration sets** export and send now land the raw calibration
+  frames again once masters have been built from them. Building a master had
+  quietly turned this mode into a copy of **Lights + masters**; the raw sets are
+  back, with their own darks and biases beneath them. Raw frames that were
+  archived after the build are reported up front, before anything is written.
+- The Calibration Library folder now lists its missing files like any other
+  folder, so a master whose file is gone can be removed from the catalog right
+  there — which also hands its raw frames back to the matcher.

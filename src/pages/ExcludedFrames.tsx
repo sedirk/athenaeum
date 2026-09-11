@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
 import { api } from '../api';
+import { HistoryNav } from '../components/HistoryNav';
 import { MissingMetadataView } from '../components/missing-metadata/MissingMetadataView';
 import type { ExcludedFrameRow, MissingMetadataRow } from '../types/models';
 import { useI18n } from '../i18n/I18nContext';
@@ -23,7 +22,6 @@ import { useI18n } from '../i18n/I18nContext';
  */
 export default function ExcludedFrames() {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const [count, setCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,14 +53,8 @@ export default function ExcludedFrames() {
 
   return (
     <div className="p-4 pt-3 h-full flex flex-col min-h-0">
-      <div className="mb-4 flex-shrink-0">
-        <button
-          onClick={() => navigate('/objects')}
-          className="flex items-center gap-2 text-content-muted hover:text-content transition-colors mb-2"
-        >
-          <ArrowLeft size={18} />
-          {t('excluded.back')}
-        </button>
+      <div className="mb-4 flex flex-shrink-0 items-center gap-2">
+        <HistoryNav fallback="/objects" />
         <h2 className="text-2xl font-bold">
           {t('excluded.title')}
           <span className="text-sm font-normal text-content-muted ml-3">
