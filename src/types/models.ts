@@ -515,32 +515,11 @@ export type FrameSetReference = { framesSetId: number, referenceFrameId: number,
  */
 setAt: string, };
 
-export type RegistrationRecord = { id: number | null, framesSetId: number, frameId: number, referenceFrameId: number, isReference: boolean, crpix1: number | null, crpix2: number | null, crval1: number | null, crval2: number | null, cd11: number | null, cd12: number | null, cd21: number | null, cd22: number | null, affineA1: number | null, affineB1: number | null, affineC1: number | null, affineA2: number | null, affineB2: number | null, affineC2: number | null, matchedStars: number, rmsResidualPx: number, 
-/**
- * RMS in arcsec: `rms_residual_px * pixel_scale_arcsec`. `None` when the
- * reference pixel scale is unavailable (rare).
- */
-rmsResidualArcsec: number | null, 
-/**
- * `"aligned"` | `"aligned_flipped"` | `"reference"` | `"failed"`.
- * `"aligned_flipped"` is an aligned variant (not a distinct outcome): the
- * fitted transform includes a reflection (meridian-flipped sub).
- */
-status: string, 
-/**
- * Error message for failed rows.
- */
-error: string | null, computeTimeMs: number, registeredAt: string, };
-
-export type StackingPrepProgressEvent = { frameId: number, current: number, total: number, status: string, matchedStars: number | null, rmsPx: number | null, error: string | null, filename: string | null, };
-
-export type StackingPrepCompleteEvent = { referenceFrameId: number, aligned: number, failed: number, total: number, };
-
 export type LoggingConfig = { level: string, modules: { [key in string]: string }, };
 
 export type LoggingConfigResponse = { config: LoggingConfig, envOverrideActive: boolean, };
 
-export type ComputeJobKind = "analysis" | "master_build" | "light_calibration" | "content_index";
+export type ComputeJobKind = "analysis" | "master_build" | "light_calibration" | "content_index" | "stacking";
 
 export type ComputeJobState = "queued" | "running";
 
@@ -604,7 +583,7 @@ syncConfigured: boolean, };
 
 export type Combination = "average" | "median";
 
-export type Rejection = { "method": "none" } | { "method": "percentile_clip", low: number, high: number, } | { "method": "sigma_clip", sigma_low: number, sigma_high: number, } | { "method": "winsorized_sigma", sigma_low: number, sigma_high: number, } | { "method": "linear_fit_clip", sigma_low: number, sigma_high: number, };
+export type Rejection = { "method": "none" } | { "method": "percentile_clip", low: number, high: number, } | { "method": "sigma_clip", sigma_low: number, sigma_high: number, } | { "method": "winsorized_sigma", sigma_low: number, sigma_high: number, } | { "method": "linear_fit_clip", sigma_low: number, sigma_high: number, } | { "method": "min_max", low: number, high: number, } | { "method": "esd", outliers_fraction: number, alpha: number, low_relaxation: number, } | { "method": "rcr", limit: number, };
 
 export type IntegrationRecipe = { combination: Combination, rejection: Rejection, };
 
@@ -726,7 +705,42 @@ missingMasterFiles: number,
  * is not counted: its missing files fail per file in the run, as they
  * always have.
  */
-missingRawCalibrationFiles: number, fileCounts: ExportFileCounts, };
+missingRawCalibrationFiles: number, fileCounts: ExportFileCounts, 
+/**
+ * Plan 5b Task 8 (owner requirement 2026-09-09 — "the pipeline builds
+ * its own masters"): the `raw_set_ids_without_master` subset the
+ * stacking pipeline's stage 0.5 CAN build — every member frame's
+ * `files.path` exists on disk and the set has at least
+ * [`crate::api::masters::MIN_MASTER_FRAMES`] members. `Vec<i64>`, not a
+ * blocker: the calibrated-lights EXPORT gate ([`check_mode_ready`])
+ * still treats every id in `raw_set_ids_without_master` as blocking —
+ * only the stacking plan's own gate (`stacking::plan::build_plan`)
+ * reads this split.
+ */
+rawSetsBuildable: Array<number>, 
+/**
+ * The `raw_set_ids_without_master` subset that CANNOT be built right
+ * now, with why (`"fewer than N frames"` / `"N of M raw frames missing
+ * on disk"` / `"archived — restore first"`). Every id here is also a
+ * `raw_set_ids_without_master` entry — this is a reason breakdown of
+ * that same list, not a separate tally.
+ */
+rawSetsUnbuildable: Array<[number, string]>, 
+/**
+ * Master `calibration_set` ids among the resolved masters counted by
+ * `missing_master_files` whose file the stacking pipeline's stage 0.5
+ * CAN rebuild: a `master_provenance` row exists and
+ * [`crate::api::masters::check_rebuild_source_ready`] passes for its
+ * source set.
+ */
+mastersRebuildable: Array<number>, 
+/**
+ * The missing-master subset that CANNOT be rebuilt, with why (`"no
+ * provenance"` when the master was not built by Athenaeum, else the
+ * `check_rebuild_source_ready` failure text — archived originals or
+ * missing source frames).
+ */
+mastersUnrebuildable: Array<[number, string]>, };
 
 export type FlatNormMode = "centralThird" | "pixinsightTrimmed";
 
@@ -1640,4 +1654,39 @@ export type ThresholdRuleView = { metricKey: string, op: string,
  * (the hub validates rule values to number|bool, so this is exact).
  */
 value: number | boolean, };
+
+export type Channel = "stable" | "beta";
+
+export type UpdateCheck = { 
+/**
+ * `CARGO_PKG_VERSION`, dotted form.
+ */
+currentVersion: string, 
+/**
+ * The winning manifest's version, dotted form.
+ */
+latestVersion: string, isUpdateAvailable: boolean, 
+/**
+ * Which channel file won.
+ */
+channel: Channel, 
+/**
+ * The manifest's `notes` (Markdown), when present.
+ */
+notes: string | null, 
+/**
+ * RFC 3339 as published; the frontend formats it.
+ */
+pubDate: string | null, 
+/**
+ * The plugin can install this on THIS build: desktop, and a manifest key
+ * for the running `<os>-<arch>[-installer]` exists.
+ */
+platformSupported: boolean, downloadPageUrl: string, blogUrl: string, 
+/**
+ * `vsharifov/athenaeum:<latest>` on the web host, `None` on desktop.
+ */
+dockerImage: string | null, };
+
+export type WhatsNew = { version: string, notes: string, blogUrl: string, };
 

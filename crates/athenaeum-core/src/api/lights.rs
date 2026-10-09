@@ -23,7 +23,7 @@
 //! `api/calibration.rs` inner-fn precedent); the public handler is a thin
 //! `ctx` → `conn` wrapper.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use rusqlite::{params, Connection};
@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::{db, ApiError};
 use crate::calibration_library::light_resolve::{link_set_id, resolve_master};
 use crate::db::calibration_links::get_links_for_frame;
-use crate::export::models::{ExportFileCounts, ExportMode};
+use crate::export::models::{ExportData, ExportFileCounts, ExportMode};
 use crate::services::ServiceContext;
 
 // Re-export the flat-normalization statistic + advanced-parameter types so the
@@ -93,6 +93,37 @@ pub struct ExportReadiness {
     /// always have.
     pub missing_raw_calibration_files: i64,
     pub file_counts: ExportFileCounts,
+    /// Plan 5b Task 8 (owner requirement 2026-09-09 — "the pipeline builds
+    /// its own masters"): the `raw_set_ids_without_master` subset the
+    /// stacking pipeline's stage 0.5 CAN build — every member frame's
+    /// `files.path` exists on disk and the set has at least
+    /// [`crate::api::masters::MIN_MASTER_FRAMES`] members. `Vec<i64>`, not a
+    /// blocker: the calibrated-lights EXPORT gate ([`check_mode_ready`])
+    /// still treats every id in `raw_set_ids_without_master` as blocking —
+    /// only the stacking plan's own gate (`stacking::plan::build_plan`)
+    /// reads this split.
+    #[serde(default)]
+    pub raw_sets_buildable: Vec<i64>,
+    /// The `raw_set_ids_without_master` subset that CANNOT be built right
+    /// now, with why (`"fewer than N frames"` / `"N of M raw frames missing
+    /// on disk"` / `"archived — restore first"`). Every id here is also a
+    /// `raw_set_ids_without_master` entry — this is a reason breakdown of
+    /// that same list, not a separate tally.
+    #[serde(default)]
+    pub raw_sets_unbuildable: Vec<(i64, String)>,
+    /// Master `calibration_set` ids among the resolved masters counted by
+    /// `missing_master_files` whose file the stacking pipeline's stage 0.5
+    /// CAN rebuild: a `master_provenance` row exists and
+    /// [`crate::api::masters::check_rebuild_source_ready`] passes for its
+    /// source set.
+    #[serde(default)]
+    pub masters_rebuildable: Vec<i64>,
+    /// The missing-master subset that CANNOT be rebuilt, with why (`"no
+    /// provenance"` when the master was not built by Athenaeum, else the
+    /// `check_rebuild_source_ready` failure text — archived originals or
+    /// missing source frames).
+    #[serde(default)]
+    pub masters_unrebuildable: Vec<(i64, String)>,
 }
 
 // ── Membership ──────────────────────────────────────────────────────────────
@@ -199,9 +230,44 @@ pub fn check_mode_ready(r: &ExportReadiness, mode: ExportMode) -> Result<(), Str
 /// backstop. Tallying the calibrated mode from the per-frame `classify` walk
 /// instead would let the two modes report different numbers for the same frame
 /// set, and let the calibrated gate pass a tree the backstop would refuse.
-fn compute_export_readiness(conn: &Connection, set_id: i64) -> Result<ExportReadiness, ApiError> {
-    let members = load_light_members(conn, set_id)?;
-    let total = members.len() as i64;
+///
+/// Thin wrapper over [`compute_export_readiness_for_frames`] with the
+/// frame set's WHOLE light membership — export/send readiness is always
+/// judged over every light, exclusions are a stacking-only concept.
+pub(crate) fn compute_export_readiness(
+    conn: &Connection,
+    set_id: i64,
+) -> Result<ExportReadiness, ApiError> {
+    let light_frame_ids: Vec<i64> = load_light_members(conn, set_id)?
+        .into_iter()
+        .map(|(frame_id, _filename)| frame_id)
+        .collect();
+    compute_export_readiness_for_frames(conn, set_id, &light_frame_ids)
+}
+
+/// [`compute_export_readiness`]'s worker, generalized (ruling R-T6-6) over an
+/// EXPLICIT light-frame-id subset rather than always the frame set's whole
+/// membership — the stacking plan gate's own use
+/// (`stacking::plan::build_plan`): masters/links readiness, and the stage-0.5
+/// build list it feeds (`raw_sets_buildable`/`masters_rebuildable`), must be
+/// judged over the frames a run will actually touch, never a set's full
+/// membership including manually excluded frames (the real-data finding on
+/// set 195 "Ghost Nebula": a 1-frame flat linked to 9 lights, all manually
+/// excluded, blocked a run that would never touch it). `light_frame_ids` is
+/// trusted to already be LIGHT frame ids belonging to `set_id` — both
+/// callers derive it that way (`compute_export_readiness`'s whole-set list
+/// above, `build_plan`'s membership minus its exclusions) — and to be
+/// DUPLICATE-FREE: both derive it from a `SELECT DISTINCT` over a
+/// membership where one frame belongs to exactly one group, so no id can
+/// appear twice. That matters because only the master/raw-set maps below
+/// dedupe (by set and by resolved path); `total` and `unlinked_lights` are
+/// plain per-id counters and a repeated id would simply be counted twice.
+pub(crate) fn compute_export_readiness_for_frames(
+    conn: &Connection,
+    set_id: i64,
+    light_frame_ids: &[i64],
+) -> Result<ExportReadiness, ApiError> {
+    let total = light_frame_ids.len() as i64;
 
     // A light with no links of ANY type: nothing to subtract, nothing to
     // divide by. It is the one per-frame fact the export tree cannot state,
@@ -222,38 +288,42 @@ fn compute_export_readiness(conn: &Connection, set_id: i64) -> Result<ExportRead
     // reads it in that case, so a bias file gone from disk must not block a
     // run that would never touch it.
     let mut unlinked_lights = 0i64;
-    let mut master_paths: BTreeSet<PathBuf> = BTreeSet::new();
-    for (frame_id, _filename) in members {
+    // Path -> the MASTER calibration_set id that path belongs to
+    // (`ResolvedMaster::set_id`) — Plan 5b Task 8 needs the id, not just the
+    // path, to classify a missing master as rebuildable or not; a `BTreeMap`
+    // keeps the same distinct-by-path dedup the old `BTreeSet<PathBuf>` gave
+    // (two different master sets never share one on-disk file).
+    let mut master_paths: BTreeMap<PathBuf, i64> = BTreeMap::new();
+    for &frame_id in light_frame_ids {
         let links = get_links_for_frame(conn, frame_id)?;
         if links.is_empty() {
             unlinked_lights += 1;
             continue;
         }
 
-        let dark_path = match link_set_id(&links, "Dark") {
+        let dark = match link_set_id(&links, "Dark") {
             Some(set_id) => resolve_master(conn, set_id)
-                .map_err(|e| ApiError::Internal(format!("resolve master {set_id}: {e:#}")))?
-                .map(|m| PathBuf::from(m.path)),
+                .map_err(|e| ApiError::Internal(format!("resolve master {set_id}: {e:#}")))?,
             None => None,
         };
-        if let Some(p) = &dark_path {
-            master_paths.insert(p.clone());
+        if let Some(m) = &dark {
+            master_paths.insert(PathBuf::from(&m.path), m.set_id);
         }
 
         if let Some(set_id) = link_set_id(&links, "Flat") {
             if let Some(master) = resolve_master(conn, set_id)
                 .map_err(|e| ApiError::Internal(format!("resolve master {set_id}: {e:#}")))?
             {
-                master_paths.insert(PathBuf::from(master.path));
+                master_paths.insert(PathBuf::from(master.path), master.set_id);
             }
         }
 
-        if dark_path.is_none() {
+        if dark.is_none() {
             if let Some(set_id) = link_set_id(&links, "Bias") {
                 if let Some(master) = resolve_master(conn, set_id)
                     .map_err(|e| ApiError::Internal(format!("resolve master {set_id}: {e:#}")))?
                 {
-                    master_paths.insert(PathBuf::from(master.path));
+                    master_paths.insert(PathBuf::from(master.path), master.set_id);
                 }
             }
         }
@@ -263,19 +333,107 @@ fn compute_export_readiness(conn: &Connection, set_id: i64) -> Result<ExportRead
     // `error!(path = …)`); the export path was silently discarding the paths
     // after counting them, leaving no way — UI or log — to learn which master
     // to restore.
-    let missing_master_files = master_paths
-        .iter()
-        .filter(|p| {
-            let missing = std::fs::metadata(p).is_err();
-            if missing {
-                tracing::warn!(path = %p.display(), "master file missing on disk");
+    //
+    // Owned (not borrowed from `master_paths`) because Plan 5b Task 8b's
+    // transitive pass below adds entries the light-link pass above never
+    // saw; `BTreeMap` keeps the same distinct-by-path dedup discipline.
+    let mut missing_masters: BTreeMap<PathBuf, i64> = BTreeMap::new();
+    for (path, &master_set_id) in &master_paths {
+        if std::fs::metadata(path).is_err() {
+            tracing::warn!(path = %path.display(), "master file missing on disk");
+            missing_masters.insert(path.clone(), master_set_id);
+        }
+    }
+
+    // Plan 5b Task 8b (found by the Task 7 acceptance run on the real LDN
+    // 1272 catalog): a missing MASTER FLAT is rebuilt from its raw source set
+    // via `select_flat_precal`'s DarkFlat -> Dark -> Bias chain
+    // (`api::masters::select_flat_precal`) — if the pre-calibration master
+    // that chain would pick is ALSO missing, `load_precal_pixels` fails with
+    // "pre-cal master unreadable" and stage 0.5 never gets that far. One
+    // transitive pass, one level only (a dark/darkflat/bias needs no
+    // pre-calibration of its own): for every master ALREADY found missing
+    // above whose `calibration_set.imagetyp` is `MasterFlat`, resolve its
+    // provenance's `source_set_id` and re-run the SAME selection the flat's
+    // own rebuild will make (`synthetic_bias = None` — the Master arm is
+    // chosen before the synthetic step, so the choice is identical to what
+    // `run_build` will make). A flat master whose own file EXISTS is never
+    // touched here — its pre-calibration master is not read again by anyone,
+    // which keeps `missing_master_files` meaning exactly "files the next
+    // calibration or rebuild would read".
+    //
+    // Fix round 1: only the SET IDS need to survive the loop below (the
+    // path is only ever used to key `missing_masters`, which is already
+    // owned) — collecting `PathBuf`s here just to bind them as `_` in the
+    // loop was dead cloning.
+    let initial_missing_ids: Vec<i64> = missing_masters.values().copied().collect();
+    for master_set_id in initial_missing_ids {
+        // Fix round 1 (Important finding): a broken row anywhere in this
+        // resolution (a master shell with no `calibration_set_frames`
+        // member, for instance — `select_flat_precal`'s own path lookup then
+        // returns `QueryReturnedNoRows`) must not fail the whole readiness
+        // call; the rebuildability loop right below already degrades this
+        // way, so this pass must too. Degrade to a warning and move on — the
+        // flat itself stays the only listed missing master.
+        match precal_master_for_missing_flat(conn, master_set_id) {
+            Ok(Some((precal_path, precal_set_id))) => {
+                if !missing_masters.contains_key(&precal_path) {
+                    tracing::warn!(
+                        path = %precal_path.display(),
+                        "pre-calibration master file missing on disk"
+                    );
+                    missing_masters.insert(precal_path, precal_set_id);
+                }
             }
-            missing
-        })
-        .count() as i64;
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    master_set_id,
+                    %error,
+                    "flat pre-calibration master unresolved; listing the flat only"
+                );
+            }
+        }
+    }
+    let missing_master_files = missing_masters.len() as i64;
+
+    // Plan 5b Task 8 (extended by Task 8b to cover the transitive
+    // pre-calibration masters above too): which of those missing masters
+    // stage 0.5 can rebuild — `master_provenance` row +
+    // `check_rebuild_source_ready` Ok for its source set (decision 3: reuses
+    // the SAME manual-rebuild precondition), run over the UNION.
+    let mut masters_rebuildable: Vec<i64> = Vec::new();
+    let mut masters_unrebuildable: Vec<(i64, String)> = Vec::new();
+    for &master_set_id in missing_masters.values() {
+        match classify_master_rebuildability(conn, master_set_id) {
+            Ok(None) => masters_rebuildable.push(master_set_id),
+            Ok(Some(reason)) => masters_unrebuildable.push((master_set_id, reason)),
+            Err(error) => {
+                tracing::warn!(
+                    master_set_id,
+                    %error,
+                    "stacking: failed to classify missing master rebuildability; treating as unrebuildable"
+                );
+                masters_unrebuildable
+                    .push((master_set_id, format!("could not be checked: {error}")));
+            }
+        }
+    }
 
     let data = crate::export::collect_export_data(conn, set_id)
         .map_err(|e| ApiError::Internal(format!("collect export data for readiness: {e:#}")))?;
+    // Ruling R-T6-6: filter the export tree down to the given light subset
+    // BEFORE deriving raw-set readiness from it — a `CalibrationSubgroup`
+    // whose lights are entirely outside `light_frame_ids` is dropped, so
+    // the calibration sets it alone needed stop appearing in
+    // `raw_sets_without_master`/`file_counts`/`missing_raw_calibration_files`
+    // below. A no-op for [`compute_export_readiness`]'s whole-set caller
+    // (`light_frame_ids` there covers every light `collect_export_data`
+    // itself would have found, so no subgroup's member list changes and
+    // none is ever dropped) — see [`filter_export_data_to_frames`]'s own
+    // doc for why.
+    let frame_id_set: HashSet<i64> = light_frame_ids.iter().copied().collect();
+    let data = filter_export_data_to_frames(data, &frame_id_set);
     let raw_set_ids_without_master =
         crate::export::data_collector::raw_sets_without_master(conn, &data)
             .map_err(|e| ApiError::Internal(format!("raw-set readiness: {e:#}")))?;
@@ -291,12 +449,36 @@ fn compute_export_readiness(conn: &Connection, set_id: i64) -> Result<ExportRead
             .missing_originals
             .len() as i64;
 
+    // Plan 5b Task 8: which of `raw_set_ids_without_master` stage 0.5 can
+    // build right now — every member frame on disk and at least
+    // `MIN_MASTER_FRAMES` of them (decision 3).
+    let mut raw_sets_buildable: Vec<i64> = Vec::new();
+    let mut raw_sets_unbuildable: Vec<(i64, String)> = Vec::new();
+    for &raw_set_id in &raw_set_ids_without_master {
+        match classify_raw_set_buildability(conn, raw_set_id) {
+            Ok(None) => raw_sets_buildable.push(raw_set_id),
+            Ok(Some(reason)) => raw_sets_unbuildable.push((raw_set_id, reason)),
+            Err(error) => {
+                tracing::warn!(
+                    raw_set_id,
+                    %error,
+                    "stacking: failed to classify raw calibration set buildability; treating as unbuildable"
+                );
+                raw_sets_unbuildable.push((raw_set_id, format!("could not be checked: {error}")));
+            }
+        }
+    }
+
     tracing::debug!(
         set_id,
         total,
         unlinked_lights,
         raw_sets = raw_set_ids_without_master.len(),
+        raw_sets_buildable = raw_sets_buildable.len(),
+        raw_sets_unbuildable = raw_sets_unbuildable.len(),
         missing_master_files,
+        masters_rebuildable = masters_rebuildable.len(),
+        masters_unrebuildable = masters_unrebuildable.len(),
         missing_raw_calibration_files,
         "export readiness computed"
     );
@@ -308,7 +490,205 @@ fn compute_export_readiness(conn: &Connection, set_id: i64) -> Result<ExportRead
         missing_master_files,
         missing_raw_calibration_files,
         file_counts,
+        raw_sets_buildable,
+        raw_sets_unbuildable,
+        masters_rebuildable,
+        masters_unrebuildable,
     })
+}
+
+/// Ruling R-T6-6: filter `data`'s export groups down to only the LIGHT
+/// frames named by `frame_ids` — used by
+/// [`compute_export_readiness_for_frames`] to derive masters/links
+/// readiness over the frames a stacking run will actually touch, without
+/// touching `export::collect_export_data` itself (which every OTHER export
+/// caller still walks unfiltered).
+///
+/// A `CalibrationSubgroup` — the collector's own unit of "lights sharing
+/// one exact combination of calibration links" — is dropped entirely when
+/// EVERY one of its lights falls outside `frame_ids`: its own
+/// `flat`/`dark`/`bias` nodes (and their sub-calibrations) then never reach
+/// `raw_sets_without_master`'s walk, so a raw set only an excluded light
+/// needs stops being counted/blocking/offered to stage 0.5. A subgroup with
+/// AT LEAST ONE surviving light keeps every one of its calibration nodes
+/// untouched — an included light there still needs them, and a raw set's
+/// OWN sub-frame count (`CalibrationSetInfo.frames`, unrelated to which
+/// lights use the set) is never itself filtered.
+///
+/// A no-op when `frame_ids` covers the WHOLE set (every subgroup's member
+/// list is already exactly what it was, so nothing is ever dropped) —
+/// exactly [`compute_export_readiness`]'s own case, which is how the
+/// whole-set caller and the frame-filtered one can share this one filter
+/// without the whole-set behaviour changing.
+fn filter_export_data_to_frames(mut data: ExportData, frame_ids: &HashSet<i64>) -> ExportData {
+    for group in &mut data.groups {
+        group.subgroups.retain_mut(|subgroup| {
+            subgroup.frames.retain(|f| frame_ids.contains(&f.frame_id));
+            !subgroup.frames.is_empty()
+        });
+        // Kept in sync with the filtered subgroups — not read by any of the
+        // three readiness functions this feeds today, but a stale total on
+        // a filtered copy would be a trap for a future reader.
+        group.total_frames = group
+            .subgroups
+            .iter()
+            .map(|sg| sg.frames.len() as i32)
+            .sum();
+        group.total_exposure = group
+            .subgroups
+            .iter()
+            .flat_map(|sg| sg.frames.iter())
+            .filter_map(|f| f.exptime)
+            .sum();
+    }
+    data
+}
+
+// ── Plan 5b Task 8: buildable/rebuildable classification ────────────────────
+
+/// Whether raw calibration set `raw_set_id` (already known to have no built
+/// master — a `raw_set_ids_without_master` entry) can be built by the
+/// stacking pipeline's stage 0.5 right now. `Ok(None)` = buildable; `Ok(Some(reason))`
+/// names why not, in priority order: no calibration library folder
+/// configured (fix round 1, item 1 — checked FIRST, since nothing below is
+/// worth checking if there is nowhere to write the result), then too few
+/// members, then archived, then plain missing — matching
+/// [`crate::api::masters::check_rebuild_source_ready`]'s own
+/// archived-vs-missing distinction for a rebuild's source set.
+///
+/// The library-folder check mirrors what `run_build`'s `BuildTarget::New`
+/// arm would eventually discover on its own — but only at WRITE time, after
+/// the whole banded integration of every raw sub-frame. Checking it here,
+/// before the plan ever lists the set as buildable, is what keeps a
+/// missing/unmounted library folder from being discovered by burning a full
+/// integration pass first (fix round 1, item 1's whole point — see
+/// `crate::api::masters::build_master_inline`'s own pre-check for the other
+/// half of this fix).
+fn classify_raw_set_buildability(
+    conn: &Connection,
+    raw_set_id: i64,
+) -> Result<Option<String>, ApiError> {
+    if crate::api::masters::library_dir_or_err(conn).is_err() {
+        return Ok(Some("no calibration library folder configured".to_string()));
+    }
+
+    let frame_count: i64 = conn.query_row(
+        "SELECT frame_count FROM calibration_set WHERE id = ?1",
+        [raw_set_id],
+        |r| r.get(0),
+    )?;
+    if frame_count < crate::api::masters::MIN_MASTER_FRAMES {
+        return Ok(Some(format!(
+            "fewer than {} frames",
+            crate::api::masters::MIN_MASTER_FRAMES
+        )));
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT fi.path, fi.archived_in_operation FROM calibration_set_frames csf
+         JOIN frames f ON f.id = csf.frame_id
+         JOIN files fi ON fi.id = f.file_id
+         WHERE csf.set_id = ?1",
+    )?;
+    let rows: Vec<(String, Option<i64>)> = stmt
+        .query_map([raw_set_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let total = rows.len();
+    let missing: Vec<&(String, Option<i64>)> = rows
+        .iter()
+        .filter(|(p, _)| !std::path::Path::new(p).exists())
+        .collect();
+    if missing.is_empty() {
+        return Ok(None);
+    }
+    if missing.iter().any(|(_, archived)| archived.is_some()) {
+        return Ok(Some("archived — restore first".to_string()));
+    }
+    Ok(Some(format!(
+        "{} of {total} raw frames missing on disk",
+        missing.len()
+    )))
+}
+
+/// Whether missing master `master_set_id` can be rebuilt by the stacking
+/// pipeline's stage 0.5 right now: a `master_provenance` row must exist, and
+/// its source set must pass [`crate::api::masters::check_rebuild_source_ready`] —
+/// the SAME precondition the manual "Rebuild" action uses, so the readiness
+/// split and a manual rebuild attempt never disagree.
+fn classify_master_rebuildability(
+    conn: &Connection,
+    master_set_id: i64,
+) -> Result<Option<String>, ApiError> {
+    let Some(prov) = crate::db::master_provenance::get(conn, master_set_id).map_err(|e| {
+        ApiError::Internal(format!("read master provenance {master_set_id}: {e:#}"))
+    })?
+    else {
+        return Ok(Some("no provenance".to_string()));
+    };
+    let Some(source_set_id) = prov.source_set_id else {
+        return Ok(Some("no provenance".to_string()));
+    };
+    match crate::api::masters::check_rebuild_source_ready(conn, source_set_id) {
+        Ok(()) => Ok(None),
+        Err(e) => Ok(Some(e.to_string())),
+    }
+}
+
+/// Task 8b fix round 1: the per-master body of the transitive precal pass,
+/// factored out so `compute_export_readiness`'s loop can catch a broken row
+/// (a master shell with no `calibration_set_frames` member, for instance)
+/// and degrade to a warning instead of failing the whole readiness call —
+/// mirroring [`classify_master_rebuildability`]'s own `Result` shape one
+/// call site below.
+///
+/// `Ok(None)`: `master_set_id` isn't a `MasterFlat`, has no
+/// `master_provenance` row (or one with no `source_set_id`), or its
+/// [`crate::api::masters::select_flat_precal`] choice isn't a built master,
+/// or that master's file is already on disk — nothing to add. `Ok(Some((path,
+/// set_id)))`: the pre-calibration master `select_flat_precal` would pick is
+/// ALSO missing from disk. `Err`: a DB read failed partway through — the
+/// caller's to degrade, never propagated further.
+fn precal_master_for_missing_flat(
+    conn: &Connection,
+    master_set_id: i64,
+) -> Result<Option<(PathBuf, i64)>, ApiError> {
+    let imagetyp: String = conn.query_row(
+        "SELECT imagetyp FROM calibration_set WHERE id = ?1",
+        params![master_set_id],
+        |r| r.get(0),
+    )?;
+    if imagetyp != "MasterFlat" {
+        return Ok(None);
+    }
+    let Some(prov) = crate::db::master_provenance::get(conn, master_set_id).map_err(|e| {
+        ApiError::Internal(format!("read master provenance {master_set_id}: {e:#}"))
+    })?
+    else {
+        return Ok(None);
+    };
+    let Some(source_set_id) = prov.source_set_id else {
+        return Ok(None);
+    };
+    let source_exptime: Option<f64> = conn.query_row(
+        "SELECT exptime FROM calibration_set WHERE id = ?1",
+        params![source_set_id],
+        |r| r.get(0),
+    )?;
+    let sel = crate::api::masters::select_flat_precal(conn, source_set_id, source_exptime, None)?;
+    let crate::api::masters::PrecalChoice::Master {
+        set_id: precal_set_id,
+        path: precal_path,
+        ..
+    } = sel.choice
+    else {
+        return Ok(None);
+    };
+    let precal_path = PathBuf::from(precal_path);
+    if std::fs::metadata(&precal_path).is_err() {
+        Ok(Some((precal_path, precal_set_id)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Export/send readiness for every mode in one call (spec 2026-08-28 §5, v2
@@ -400,6 +780,20 @@ mod tests {
              (source_id, source_type, calibration_set_id, calibration_type, matched_at)
              VALUES (?1, 'frame', ?2, ?3, '2026-07-05T00:00:00Z')",
             params![frame_id, set_id, cal_type],
+        )
+        .unwrap();
+    }
+
+    /// A raw calibration set's own sub-cal link — e.g. a raw flat set's own
+    /// Dark link — `source_type = 'calibration_set'`, the shape
+    /// `select_flat_precal` walks (mirrors `api::masters`'s own `link` test
+    /// helper).
+    fn add_set_link(conn: &Connection, source_set_id: i64, target_set_id: i64, cal_type: &str) {
+        conn.execute(
+            "INSERT INTO calibration_set_to_frames
+             (source_id, source_type, calibration_set_id, calibration_type, matched_at)
+             VALUES (?1, 'calibration_set', ?2, ?3, '2026-09-09T00:00:00Z')",
+            params![source_set_id, target_set_id, cal_type],
         )
         .unwrap();
     }
@@ -630,6 +1024,10 @@ mod tests {
             missing_master_files: 0,
             missing_raw_calibration_files: 0,
             file_counts: Default::default(),
+            raw_sets_buildable: vec![],
+            raw_sets_unbuildable: vec![],
+            masters_rebuildable: vec![],
+            masters_unrebuildable: vec![],
         };
         for mode in [
             ExportMode::LightsOnly,
@@ -833,6 +1231,185 @@ mod tests {
         assert!(check_mode_ready(&r, ExportMode::RawWithCalibrationSets).is_ok());
     }
 
+    /// A raw (non-master) calibration set with `n` member frames whose files
+    /// ACTUALLY EXIST on disk and whose `frame_count` column matches `n` —
+    /// unlike `seed_raw_set_with_frames` (fabricated, never-written paths,
+    /// `frame_count` left at the schema default of 0), this is the shape
+    /// `classify_raw_set_buildability` calls buildable.
+    fn seed_raw_set_real_files(
+        conn: &Connection,
+        dir: &std::path::Path,
+        set_id: i64,
+        imagetyp: &str,
+        n: i64,
+    ) -> i64 {
+        conn.execute(
+            "INSERT INTO calibration_set (id, imagetyp, date, is_master_library, frame_count)
+             VALUES (?1, ?2, '2026-09-09', 0, ?3)",
+            params![set_id, imagetyp, n],
+        )
+        .unwrap();
+        for i in 0..n {
+            let file_id = set_id * 100 + i + 7_000_000;
+            let frame_id = set_id * 100 + i + 7_500_000;
+            let path = dir.join(format!("{imagetyp}_{set_id}_{i}.fits"));
+            std::fs::write(&path, b"raw sub-frame bytes").unwrap();
+            conn.execute(
+                "INSERT INTO files (id, path, filename, size, modified_at, format)
+                 VALUES (?1, ?2, ?3, 0, '2026-09-09T00:00:00Z', 'FITS')",
+                params![
+                    file_id,
+                    path.to_string_lossy(),
+                    format!("{imagetyp}_{set_id}_{i}.fits")
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO frames (id, file_id, imagetyp) VALUES (?1, ?2, ?3)",
+                params![frame_id, file_id, imagetyp],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO calibration_set_frames (set_id, frame_id) VALUES (?1, ?2)",
+                params![set_id, frame_id],
+            )
+            .unwrap();
+        }
+        set_id
+    }
+
+    /// Plan 5b Task 8 (owner requirement 2026-09-09), decision 3: a raw set
+    /// with every member frame on disk and at least `MIN_MASTER_FRAMES` is
+    /// `raw_sets_buildable`; one with a missing member is
+    /// `raw_sets_unbuildable`, and the reason names the count — the stacking
+    /// plan's own gate reads this split instead of blocking on
+    /// `raw_sets_without_master` outright.
+    #[test]
+    fn raw_set_buildability_splits_by_frames_on_disk() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        seed_light(&conn, 2, session);
+        seed_masters(&conn);
+        let tmp = tempfile::tempdir().unwrap();
+        let library_dir = tmp.path().join("library");
+        std::fs::create_dir_all(&library_dir).unwrap();
+        crate::db::set_setting(
+            &conn,
+            crate::settings::keys::CALIBRATION_LIBRARY_DIR,
+            &library_dir.to_string_lossy(),
+        )
+        .unwrap();
+
+        let buildable = seed_raw_set_real_files(&conn, tmp.path(), 300, "Dark", 3);
+        add_link(&conn, 1, buildable, "Dark");
+        add_link(&conn, 1, 101, "Flat");
+
+        let unbuildable = seed_raw_set_real_files(&conn, tmp.path(), 301, "Dark", 3);
+        // A real gap — one member's file removed after seeding — not a
+        // never-written placeholder.
+        std::fs::remove_file(tmp.path().join("Dark_301_1.fits")).unwrap();
+        add_link(&conn, 2, unbuildable, "Dark");
+        add_link(&conn, 2, 101, "Flat");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(r.raw_set_ids_without_master, vec![300, 301]);
+        assert_eq!(
+            r.raw_sets_buildable,
+            vec![300],
+            "{:?}",
+            r.raw_sets_buildable
+        );
+        assert_eq!(
+            r.raw_sets_unbuildable.len(),
+            1,
+            "{:?}",
+            r.raw_sets_unbuildable
+        );
+        assert_eq!(r.raw_sets_unbuildable[0].0, unbuildable);
+        assert!(
+            r.raw_sets_unbuildable[0].1.contains("1 of 3"),
+            "{:?}",
+            r.raw_sets_unbuildable
+        );
+    }
+
+    /// M4b ruling R-T6-6: [`compute_export_readiness_for_frames`] derives
+    /// `raw_set_ids_without_master` over the GIVEN light subset only — a
+    /// raw set linked exclusively to a light outside that subset must not
+    /// appear at all, even though the whole-set readiness lists it.
+    /// [`compute_export_readiness`] (the whole-set wrapper) is unaffected
+    /// either way — same result whether called directly or through the
+    /// frame-filtered worker with every light named.
+    #[test]
+    fn readiness_for_frames_excludes_a_raw_set_only_an_excluded_light_needs() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        seed_light(&conn, 2, session);
+        seed_masters(&conn);
+
+        let tmp = tempfile::tempdir().unwrap();
+        // Light 1: linked to a raw (unbuilt) dark set — its ONLY consumer.
+        let raw_dark = seed_raw_set_real_files(&conn, tmp.path(), 300, "Dark", 3);
+        add_link(&conn, 1, raw_dark, "Dark");
+        add_link(&conn, 1, 101, "Flat");
+        // Light 2: fully linked to built masters — nothing missing.
+        add_link(&conn, 2, 100, "Dark");
+        add_link(&conn, 2, 101, "Flat");
+
+        let whole_set = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(whole_set.raw_set_ids_without_master, vec![raw_dark]);
+
+        let filtered = compute_export_readiness_for_frames(&conn, 1, &[2]).unwrap();
+        assert!(
+            filtered.raw_set_ids_without_master.is_empty(),
+            "light 1 (the raw set's only consumer) is excluded from this subset: {:?}",
+            filtered.raw_set_ids_without_master
+        );
+        assert_eq!(filtered.total, 1);
+
+        let unfiltered = compute_export_readiness_for_frames(&conn, 1, &[1, 2]).unwrap();
+        assert_eq!(unfiltered.raw_set_ids_without_master, vec![raw_dark]);
+    }
+
+    /// Fix round 1, item 1: a raw set that is otherwise perfectly buildable
+    /// (enough frames, all on disk) is still `raw_sets_unbuildable` when NO
+    /// calibration library folder is configured at all — without this, stage
+    /// 0.5 would integrate every raw sub-frame and only then fail at write
+    /// time (`run_build`'s own `library_dir_or_err` call, deep inside
+    /// `BuildTarget::New`'s write-target resolution).
+    #[test]
+    fn raw_set_unbuildable_without_a_library_folder_configured() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        let tmp = tempfile::tempdir().unwrap();
+        // Deliberately NO `CALIBRATION_LIBRARY_DIR` setting and no
+        // `calibration_library` scan root — the "never configured" shape.
+
+        let raw = seed_raw_set_real_files(&conn, tmp.path(), 300, "Dark", 3);
+        add_link(&conn, 1, raw, "Dark");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert!(
+            r.raw_sets_buildable.is_empty(),
+            "{:?}",
+            r.raw_sets_buildable
+        );
+        assert_eq!(
+            r.raw_sets_unbuildable.len(),
+            1,
+            "{:?}",
+            r.raw_sets_unbuildable
+        );
+        assert_eq!(r.raw_sets_unbuildable[0].0, raw);
+        assert_eq!(
+            r.raw_sets_unbuildable[0].1,
+            "no calibration library folder configured"
+        );
+    }
+
     /// A BUILT master set (`is_master_library = 1`) with one real member frame
     /// whose file lives at `path` — real enough for `resolve_master` to return
     /// `Some`, so the C-2 missing-file stat has something to stat (`seed_masters`'
@@ -901,6 +1478,314 @@ mod tests {
         ] {
             assert!(check_mode_ready(&r, mode).is_ok(), "{mode:?}");
         }
+    }
+
+    /// Plan 5b Task 8 (owner requirement 2026-09-09), decision 3: a missing
+    /// master with a `master_provenance` row AND a source set whose frames
+    /// are all on disk is `masters_rebuildable`; a missing master with no
+    /// provenance row at all (imported, or built outside the app) is
+    /// `masters_unrebuildable`, reason `"no provenance"` — the stacking
+    /// plan's own gate reads this split instead of blocking on
+    /// `missing_master_files` outright.
+    #[test]
+    fn master_rebuildability_splits_by_provenance() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        seed_light(&conn, 2, session);
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Rebuildable: provenance row + real source frames on disk, master
+        // FILE missing (never written — same "archived or moved" shape as
+        // `missing_master_file_blocks_calibrated_mode`).
+        let rebuildable_master = 400;
+        let rebuildable_path = tmp.path().join("master_dark_rebuildable.fits");
+        seed_master_with_file(&conn, rebuildable_master, "MasterDark", &rebuildable_path);
+        let source = seed_raw_set_real_files(&conn, tmp.path(), 401, "Dark", 3);
+        crate::db::master_provenance::insert(
+            &conn,
+            &crate::db::master_provenance::MasterProvenance {
+                master_set_id: rebuildable_master,
+                source_set_id: Some(source),
+                recipe_json: "{}".to_string(),
+                member_frame_uuids: "[]".to_string(),
+                member_hash: "hash".to_string(),
+                created_at: "2026-09-09T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        add_link(&conn, 1, rebuildable_master, "Dark");
+
+        // Unrebuildable: master FILE missing, no provenance row at all.
+        let unrebuildable_master = 402;
+        let unrebuildable_path = tmp.path().join("master_dark_unrebuildable.fits");
+        seed_master_with_file(
+            &conn,
+            unrebuildable_master,
+            "MasterDark",
+            &unrebuildable_path,
+        );
+        add_link(&conn, 2, unrebuildable_master, "Dark");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(r.missing_master_files, 2);
+        assert_eq!(
+            r.masters_rebuildable,
+            vec![rebuildable_master],
+            "{:?}",
+            r.masters_rebuildable
+        );
+        assert_eq!(
+            r.masters_unrebuildable,
+            vec![(unrebuildable_master, "no provenance".to_string())],
+            "{:?}",
+            r.masters_unrebuildable
+        );
+    }
+
+    /// Plan 5b Task 8b (found by the Task 7 acceptance run on the real LDN
+    /// 1272 catalog): a missing MASTER FLAT (500) is rebuilt from its raw
+    /// source set (501) via `select_flat_precal`'s DarkFlat -> Dark -> Bias
+    /// chain — 501's own Dark sub-cal link names a missing MasterDark (502),
+    /// so stage 0.5 must list 502 too, or the flat's rebuild would fail with
+    /// "pre-cal master unreadable" on the first flat.
+    #[test]
+    fn missing_flat_master_lists_its_missing_precal_master() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Missing MasterFlat 500, provenance -> raw flat source set 501.
+        let flat_path = tmp.path().join("master_flat_500.fits");
+        seed_master_with_file(&conn, 500, "MasterFlat", &flat_path);
+        let flat_source = seed_raw_set_real_files(&conn, tmp.path(), 501, "Flat", 3);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [flat_source],
+        )
+        .unwrap();
+        crate::db::master_provenance::insert(
+            &conn,
+            &crate::db::master_provenance::MasterProvenance {
+                master_set_id: 500,
+                source_set_id: Some(flat_source),
+                recipe_json: "{}".to_string(),
+                member_frame_uuids: "[]".to_string(),
+                member_hash: "hash".to_string(),
+                created_at: "2026-09-09T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        add_link(&conn, 1, 500, "Flat");
+
+        // 501's own Dark sub-cal link: missing MasterDark 502, provenance ->
+        // raw dark source set 503 with real files on disk.
+        let dark_path = tmp.path().join("master_dark_502.fits");
+        seed_master_with_file(&conn, 502, "MasterDark", &dark_path);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [502],
+        )
+        .unwrap();
+        let dark_source = seed_raw_set_real_files(&conn, tmp.path(), 503, "Dark", 3);
+        crate::db::master_provenance::insert(
+            &conn,
+            &crate::db::master_provenance::MasterProvenance {
+                master_set_id: 502,
+                source_set_id: Some(dark_source),
+                recipe_json: "{}".to_string(),
+                member_frame_uuids: "[]".to_string(),
+                member_hash: "hash".to_string(),
+                created_at: "2026-09-09T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        add_set_link(&conn, flat_source, 502, "Dark");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(r.missing_master_files, 2, "{r:?}");
+        let mut rebuildable = r.masters_rebuildable.clone();
+        rebuildable.sort();
+        assert_eq!(rebuildable, vec![500, 502], "{:?}", r.masters_rebuildable);
+        assert!(
+            r.masters_unrebuildable.is_empty(),
+            "{:?}",
+            r.masters_unrebuildable
+        );
+    }
+
+    /// Same shape, but the MasterFlat's own FILE exists on disk — its
+    /// pre-calibration master must never be inspected: `missing_master_files`
+    /// must count exactly the files the next calibration or rebuild would
+    /// actually read, and nobody reads a built flat's precal master again.
+    #[test]
+    fn existing_flat_master_does_not_list_its_precal_master() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        let tmp = tempfile::tempdir().unwrap();
+
+        // MasterFlat 500's file EXISTS this time.
+        let flat_path = tmp.path().join("master_flat_500.fits");
+        std::fs::write(&flat_path, b"flat").unwrap();
+        seed_master_with_file(&conn, 500, "MasterFlat", &flat_path);
+        let flat_source = seed_raw_set_real_files(&conn, tmp.path(), 501, "Flat", 3);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [flat_source],
+        )
+        .unwrap();
+        crate::db::master_provenance::insert(
+            &conn,
+            &crate::db::master_provenance::MasterProvenance {
+                master_set_id: 500,
+                source_set_id: Some(flat_source),
+                recipe_json: "{}".to_string(),
+                member_frame_uuids: "[]".to_string(),
+                member_hash: "hash".to_string(),
+                created_at: "2026-09-09T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        add_link(&conn, 1, 500, "Flat");
+
+        // The precal master is missing, but must never be inspected.
+        let dark_path = tmp.path().join("master_dark_502.fits");
+        seed_master_with_file(&conn, 502, "MasterDark", &dark_path);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [502],
+        )
+        .unwrap();
+        add_set_link(&conn, flat_source, 502, "Dark");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(r.missing_master_files, 0, "{r:?}");
+        assert!(
+            r.masters_rebuildable.is_empty(),
+            "{:?}",
+            r.masters_rebuildable
+        );
+    }
+
+    /// Same shape as `missing_flat_master_lists_its_missing_precal_master`,
+    /// but the precal master (502) has NO `master_provenance` row at all
+    /// (imported, or built outside the app) — stage 0.5 cannot do anything
+    /// about it, so it lands in `masters_unrebuildable`, not
+    /// `masters_rebuildable`, with the same "no provenance" reason a
+    /// directly-linked unrebuildable master gets.
+    #[test]
+    fn missing_flat_master_with_unrebuildable_precal_master() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        let tmp = tempfile::tempdir().unwrap();
+
+        let flat_path = tmp.path().join("master_flat_500.fits");
+        seed_master_with_file(&conn, 500, "MasterFlat", &flat_path);
+        let flat_source = seed_raw_set_real_files(&conn, tmp.path(), 501, "Flat", 3);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [flat_source],
+        )
+        .unwrap();
+        crate::db::master_provenance::insert(
+            &conn,
+            &crate::db::master_provenance::MasterProvenance {
+                master_set_id: 500,
+                source_set_id: Some(flat_source),
+                recipe_json: "{}".to_string(),
+                member_frame_uuids: "[]".to_string(),
+                member_hash: "hash".to_string(),
+                created_at: "2026-09-09T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        add_link(&conn, 1, 500, "Flat");
+
+        // 502 missing, no provenance row at all.
+        let dark_path = tmp.path().join("master_dark_502.fits");
+        seed_master_with_file(&conn, 502, "MasterDark", &dark_path);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [502],
+        )
+        .unwrap();
+        add_set_link(&conn, flat_source, 502, "Dark");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(r.missing_master_files, 2, "{r:?}");
+        assert_eq!(
+            r.masters_rebuildable,
+            vec![500],
+            "{:?}",
+            r.masters_rebuildable
+        );
+        assert_eq!(
+            r.masters_unrebuildable,
+            vec![(502, "no provenance".to_string())],
+            "{:?}",
+            r.masters_unrebuildable
+        );
+    }
+
+    /// Task 8b fix round 1 (Important finding): a broken row somewhere in
+    /// the transitive precal lookup — here, a master set with no
+    /// `calibration_set_frames` row at all, so `select_flat_precal`'s own
+    /// (un-`optional()`) path lookup returns `QueryReturnedNoRows` — must
+    /// degrade to a warning, never fail `compute_export_readiness` outright
+    /// (the Export tab and the plan gate would otherwise hard-error instead
+    /// of showing a blocker). The flat itself stays the only listed missing
+    /// master.
+    #[test]
+    fn missing_flat_master_with_broken_precal_link_still_lists_the_flat() {
+        let conn = seed_db();
+        let session = seed_frame_set(&conn, 1);
+        seed_light(&conn, 1, session);
+        let tmp = tempfile::tempdir().unwrap();
+
+        let flat_path = tmp.path().join("master_flat_500.fits");
+        seed_master_with_file(&conn, 500, "MasterFlat", &flat_path);
+        let flat_source = seed_raw_set_real_files(&conn, tmp.path(), 501, "Flat", 3);
+        conn.execute(
+            "UPDATE calibration_set SET exptime = 2.0 WHERE id = ?1",
+            [flat_source],
+        )
+        .unwrap();
+        crate::db::master_provenance::insert(
+            &conn,
+            &crate::db::master_provenance::MasterProvenance {
+                master_set_id: 500,
+                source_set_id: Some(flat_source),
+                recipe_json: "{}".to_string(),
+                member_frame_uuids: "[]".to_string(),
+                member_hash: "hash".to_string(),
+                created_at: "2026-09-09T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        add_link(&conn, 1, 500, "Flat");
+
+        // A master shell — `calibration_set` row only, NO `files`/`frames`/
+        // `calibration_set_frames` behind it — so `select_flat_precal`'s
+        // path lookup for it has nothing to find.
+        conn.execute(
+            "INSERT INTO calibration_set (id, imagetyp, date, is_master_library, exptime)
+             VALUES (502, 'MasterDark', '2026-09-09', 1, 2.0)",
+            [],
+        )
+        .unwrap();
+        add_set_link(&conn, flat_source, 502, "Dark");
+
+        let r = compute_export_readiness(&conn, 1).unwrap();
+        assert_eq!(r.missing_master_files, 1, "{r:?}");
+        assert_eq!(
+            r.masters_rebuildable,
+            vec![500],
+            "{:?}",
+            r.masters_rebuildable
+        );
     }
 
     /// Review fix #1: a light linked to a resolved master Dark AND a master
@@ -1119,12 +2004,10 @@ mod real_data_e2e {
             active_exports: Arc::new(Mutex::new(HashMap::new())),
             active_analyses: Arc::new(Mutex::new(HashMap::new())),
             active_plate_solves: Arc::new(Mutex::new(HashMap::new())),
-            active_registrations: Arc::new(Mutex::new(HashMap::new())),
             active_archives: Arc::new(Mutex::new(HashMap::new())),
             active_master_builds: Arc::new(Mutex::new(HashMap::new())),
+            active_stacks: Arc::new(Mutex::new(HashMap::new())),
             dso_catalog: Arc::new(RwLock::new(None)),
-            star_cache: Arc::new(RwLock::new(None)),
-            bright_cache: Arc::new(RwLock::new(None)),
             image_pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -1497,7 +2380,8 @@ mod real_data_e2e {
                 "output naming must come from the one shared rule"
             );
             let generated =
-                execute_generation(&spec, &out, &scratch, &opts, &mut hot_maps, &cancel).unwrap();
+                execute_generation(&spec, &out, None, &scratch, &opts, &mut hot_maps, &cancel)
+                    .unwrap();
 
             assert_eq!(generated.calstat, "BDF", "frame {fid} calstat");
             assert!(!generated.debayered);

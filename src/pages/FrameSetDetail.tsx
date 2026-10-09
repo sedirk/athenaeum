@@ -2,7 +2,7 @@ import { useI18n } from '../i18n/I18nContext';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { ArrowLeft, MapPin, RotateCw, AlertCircle, Scissors, BarChart3, Crosshair, History, Search, Archive as ArchiveIcon, Layers, AlignHorizontalJustifyCenter, Users } from 'lucide-react';
+import { ArrowLeft, MapPin, RotateCw, AlertCircle, Scissors, BarChart3, Crosshair, History, Search, Archive as ArchiveIcon, Layers, Users, SquareStack } from 'lucide-react';
 import type { FrameSetDetail, FileWithFrame, CalibrationHierarchyView, FrameAnalysis, FindNewFramesResult, MergeReport, FrameSetReference, PortalNewProjectLink } from '../types/models';
 import BlinkViewer from '../components/BlinkViewer';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -20,7 +20,7 @@ import { ArchiveProgress } from '../components/archive/ArchiveProgress';
 import { RestoreDialog } from '../components/archive/RestoreDialog';
 import { ExportTab } from '../components/export/ExportTab';
 import { getArchiveSettings, listArchiveRoots, startArchiveOperation, listArchivedFrameSets, listArchiveZips } from '../api/archive';
-import { StackingPrepTab } from '../components/StackingPrepTab';
+import { StackingTab } from '../components/stacking/StackingTab';
 import { revealItemInDir, openUrl } from '../api/desktop';
 import { safeExternalUrl } from '../utils/externalUrl';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -29,14 +29,7 @@ import { Upload, FolderOpen } from 'lucide-react';
 import type { ArchiveCompression, Dispositions, ConflictResolution } from '../types/archive';
 import type { ArchivedFrameSetSummary } from '../types/helpers';
 
-type FrameSetTab = 'calibration' | 'analysis' | 'history' | 'export' | 'registration';
-
-// The Registration (frame alignment / stacking preparation) feature is still
-// under active development. It stays fully functional in dev builds so work can
-// continue, but is disabled in production/release builds (the tab is shown
-// greyed with an "under development" tooltip). Gated on the Vite dev flag, which
-// is true for `tauri dev` / `dev:web` and false for `tauri build` / `build:web`.
-const REGISTRATION_ENABLED = import.meta.env.DEV;
+type FrameSetTab = 'calibration' | 'analysis' | 'history' | 'export' | 'stacking';
 
 export default function FrameSetDetail() {
   const { tx } = useI18n();
@@ -88,15 +81,13 @@ export default function FrameSetDetail() {
   // (e.g. clicking a `#setId` in the Export tab's WarningsPanel pushes
   // `?tab=calibration&highlightSet=…&kind=…` and we re-consume them).
   const [searchParams, setSearchParams] = useSearchParams();
-  // 'registration' deep-link always falls back to 'analysis' on initial render
-  // (we don't know the gate state yet). The searchParams useEffect below will
-  // switch to 'registration' once the reference state is resolved if appropriate.
   const initialTabFromUrl: FrameSetTab | undefined =
     searchParams.get('tab') === 'calibration' ? 'calibration'
     : searchParams.get('tab') === 'history' ? 'history'
     : searchParams.get('tab') === 'analysis' ? 'analysis'
     : searchParams.get('tab') === 'export' ? 'export'
-    : undefined; // 'registration' intentionally excluded — gating not known yet
+    : searchParams.get('tab') === 'stacking' ? 'stacking'
+    : undefined;
   const [activeTab, setActiveTab] = useState<FrameSetTab>(initialTabFromUrl ?? 'analysis');
 
   const initialHighlightSetId = (() => {
@@ -126,19 +117,8 @@ export default function FrameSetDetail() {
 
     if (!tabParam && !highlightSetParam && !kindParam) return;
 
-    if (tabParam === 'calibration' || tabParam === 'history' || tabParam === 'analysis' || tabParam === 'export') {
+    if (tabParam === 'calibration' || tabParam === 'history' || tabParam === 'analysis' || tabParam === 'export' || tabParam === 'stacking') {
       setActiveTab(tabParam);
-    } else if (tabParam === 'registration') {
-      // Only allow direct navigation to registration if it is enabled and not
-      // gated. In production REGISTRATION_ENABLED is false, so a deep link can
-      // never land on the under-development tab. registrationTabReady may not be
-      // resolved yet on first render (reference still loading); fall back to
-      // 'analysis' if it's clearly unavailable.
-      if (REGISTRATION_ENABLED && referenceFrameId !== undefined && registrationTabReady) {
-        setActiveTab('registration');
-      } else {
-        setActiveTab('analysis');
-      }
     }
 
     const id = highlightSetParam != null && /^\d+$/.test(highlightSetParam)
@@ -331,14 +311,10 @@ export default function FrameSetDetail() {
   // Analysis data for SNR display in tree
   const [analysisData, setAnalysisData] = useState<Map<number, FrameAnalysis>>(new Map());
 
-  // User-chosen reference frame for Stacking Preparation gating.
+  // User-chosen reference frame — set from the Analysis tab's "Set as
+  // reference" star, read by the stacking run.
   // null = none chosen, undefined = not yet loaded.
   const [referenceFrameId, setReferenceFrameId] = useState<number | null | undefined>(undefined);
-
-  // The registration tab is enabled only when (a) analysis exists and (b) a
-  // reference frame has been chosen.
-  const registrationTabReady =
-    analysisData.size > 0 && referenceFrameId != null && referenceFrameId !== undefined;
 
   // Reactive blackhole state — derives file IDs from hierarchy, fetches status, listens for events
   const allFileIds = useMemo(() => {
@@ -381,6 +357,30 @@ export default function FrameSetDetail() {
     }
     return map.size > 0 ? map : undefined;
   }, [calibrationHierarchy, analysisData, blackholedFileIds]);
+
+  // Stacking tab (Plan 5b Task 4, Decisions item 3): the set's LIGHT frames,
+  // read straight off `detail.nights` — the same tree every other tab on
+  // this page ultimately derives its frame lists from — rather than a
+  // second fetch. Same imagetyp+format filter `handleBlink` above already
+  // uses (a stacking run only ever reads FITS/XISF light frames).
+  const stackingLightFrames = useMemo(() => {
+    if (!detail) return [];
+    const out: { frameId: number; filename: string }[] = [];
+    for (const night of detail.nights) {
+      for (const session of night.sessions) {
+        for (const fw of session.frames) {
+          if (
+            fw.frame?.imagetyp === 'Light' &&
+            fw.frame.id != null &&
+            (fw.file.format === 'FITS' || fw.file.format === 'XISF')
+          ) {
+            out.push({ frameId: fw.frame.id, filename: fw.file.filename });
+          }
+        }
+      }
+    }
+    return out;
+  }, [detail]);
 
   // Load data on mount and when navigating back
   useEffect(() => {
@@ -853,34 +853,36 @@ export default function FrameSetDetail() {
         {([
           { key: 'analysis' as FrameSetTab, label: 'Lights Analysis & Stats', icon: BarChart3 },
           { key: 'calibration' as FrameSetTab, label: 'Calibration Coverage', icon: Crosshair },
-          { key: 'registration' as FrameSetTab, label: 'Registration', icon: AlignHorizontalJustifyCenter },
+          { key: 'stacking' as FrameSetTab, label: 'Stacking', icon: SquareStack },
           { key: 'export' as FrameSetTab, label: 'Export', icon: Layers },
           { key: 'history' as FrameSetTab, label: 'History', icon: History },
         ]).map(({ key, label, icon: Icon }) => {
-          // Registration is disabled in production (under development) and, in
-          // dev, additionally gated until the lights are analyzed and a
-          // reference is chosen.
-          const isUnderDev = key === 'registration' && !REGISTRATION_ENABLED;
-          const isGated =
-            key === 'registration' && (isUnderDev || !registrationTabReady);
-          const gateTooltip =
-            key === 'registration'
-              ? isUnderDev
-                ? 'Registration is under development — available in a future release.'
-                : !registrationTabReady
-                  ? analysisData.size === 0
-                    ? 'Analyze the lights first, then choose a reference frame in the Analysis tab'
-                    : 'Choose a reference frame in the Analysis tab to enable stacking preparation'
-                  : undefined
-              : undefined;
+          // Stacking is gated only on the set actually having light frames
+          // (spec §11: "gated only on the set has lights"); the dev-only
+          // flag came off with the M1 acceptance run (2026-09-10).
+          //
+          // Plan 5b final fix wave, review finding B6: gate on
+          // `stackingLightFrames` — the SAME LIGHT-frame list the tab itself
+          // reads (`detail.nights`, Light + FITS/XISF only) — not
+          // `calibrationHierarchy.total_frames` (a differently-scoped query
+          // through `imaging_nights` that can read zero, or fail to load,
+          // while the tab's own list is non-empty, and vice versa). A
+          // mismatch here disabled the tab with an untrue tooltip while
+          // `?tab=stacking` still rendered it — see the content branch below.
+          const stackingHasLights = stackingLightFrames.length > 0;
+          const isStackingGated = key === 'stacking' && !stackingHasLights;
+          const stackingTooltip =
+            key === 'stacking' && !stackingHasLights ? 'This set has no light frames yet.' : undefined;
+          const gated = isStackingGated;
+          const tooltip = stackingTooltip;
           return (
             <button
               key={key}
-              onClick={() => { if (!isGated) setActiveTab(key); }}
-              disabled={isGated}
-              title={gateTooltip}
+              onClick={() => { if (!gated) setActiveTab(key); }}
+              disabled={gated}
+              title={tooltip}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-                isGated
+                gated
                   ? 'border-transparent text-content-muted opacity-40 cursor-not-allowed'
                   : activeTab === key
                     ? 'border-accent text-accent'
@@ -895,7 +897,13 @@ export default function FrameSetDetail() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 min-h-0">
+      {/* Plan 5b final fix wave, review finding B7: `min-w-0` alongside the
+       *  existing `min-h-0` — a flex item's default `min-width: auto` lets a
+       *  wide descendant (the Stacking tab's Frames table) grow THIS
+       *  wrapper past the viewport instead of scrolling inside its own
+       *  `overflow-x-auto`, which is what left the whole page scrolled
+       *  horizontally after closing the provenance modal. */}
+      <div className="flex-1 min-h-0 min-w-0">
         {loadingCalibration ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
@@ -904,12 +912,32 @@ export default function FrameSetDetail() {
         ) : calibrationHierarchy ? (
           activeTab === 'history' ? (
             <FrameSetHistoryTab key={historyRefreshKey} frameSetId={parseInt(id!)} />
-          ) : activeTab === 'registration' ? (
-            <StackingPrepTab
-              framesSetId={parseInt(id!)}
-              frameSetName={detail?.frames_set?.name ?? undefined}
-              referenceFrameId={referenceFrameId ?? null}
-            />
+          ) : activeTab === 'stacking' ? (
+            // Plan 5b final fix wave, review finding B6: the tab-bar button
+            // above refuses to SELECT this tab with no light frames, but a
+            // `?tab=stacking` URL (initialTabFromUrl / the searchParams
+            // effect) sets `activeTab` directly and bypasses it — this
+            // branch is the actual content gate, checked against the same
+            // `stackingLightFrames` list the button and the tab itself use.
+            stackingLightFrames.length > 0 ? (
+              // Fix round 1 (Task 3, Critical #2), belt-and-braces: `StackingTab`
+              // guards its own draft/persist state against a set switch
+              // internally (`draftForSetRef`), but a fresh mount per set is the
+              // simplest guarantee that a stale draft can never even momentarily
+              // exist under the new id. `ExportTab` below is NOT similarly keyed
+              // — verified, not matched here on purpose, since only `StackingTab`
+              // materializes a per-set override row a stale write could corrupt.
+              <StackingTab
+                key={id}
+                framesSetId={parseInt(id!)}
+                frameSetName={detail?.frames_set?.name ?? undefined}
+                lightFrames={stackingLightFrames}
+              />
+            ) : (
+              <div className="text-center py-12 text-content-muted">
+                This set has no light frames yet.
+              </div>
+            )
           ) : activeTab === 'export' ? (
             <ExportTab
               frameSetId={parseInt(id!)}

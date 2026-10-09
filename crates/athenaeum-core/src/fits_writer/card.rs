@@ -3,7 +3,11 @@
 
 pub const CARD_SIZE: usize = 80;
 pub const BLOCK_SIZE: usize = 2880;
-const MAX_STR_CONTENT: usize = 68; // printable chars inside the quotes of one card
+// M10 (final fix wave): `pub(crate)`, not private — `stacking::master_cards`
+// used to hard-code its own `ATH_STKC_MAX_CHARS = 68` copy of this same
+// number (with a comment naming this constant, which it could not actually
+// reference) so the two would silently drift if this one ever changed.
+pub(crate) const MAX_STR_CONTENT: usize = 68; // printable chars inside the quotes of one card
 
 #[derive(Debug)]
 pub enum FitsWriteError {
@@ -16,8 +20,7 @@ pub enum FitsWriteError {
     BadChannels(usize),
     BadDimensions(String),
     MissingValue(String),
-    /// A source FITS file was not the simple single-HDU shape the byte-level
-    /// stamper (`stamp::stamp_extra_card`) requires (e.g. no END card).
+    /// Input the writer cannot represent (a malformed header block, an unparsable SIP table).
     Malformed(String),
     Io(std::io::Error),
 }
@@ -34,7 +37,7 @@ impl std::fmt::Display for FitsWriteError {
             Self::BadChannels(c) => write!(f, "channels must be 1 or 3, got {c}"),
             Self::BadDimensions(m) => write!(f, "bad image dimensions: {m}"),
             Self::MissingValue(k) => write!(f, "card has neither value nor text: {k}"),
-            Self::Malformed(m) => write!(f, "malformed FITS for stamping: {m}"),
+            Self::Malformed(m) => write!(f, "malformed FITS input: {m}"),
             Self::Io(e) => write!(f, "io: {e}"),
         }
     }
@@ -131,7 +134,10 @@ fn is_printable_ascii(s: &str) -> bool {
 /// one character (a recipe glyph, a Cyrillic path, a copied-through source
 /// card), so offending chars degrade lossily to '?' instead. One placeholder
 /// per CHAR, not per byte. Keywords stay strict (`validate_keyword`).
-fn sanitize_text<'a>(keyword: &str, s: &'a str) -> std::borrow::Cow<'a, str> {
+/// M4d Task 2: `pub(super)`, shared with the sibling XISF writer — an
+/// XISF `<FITSKeyword>` value must sanitize by exactly these rules, or one
+/// master's two containers would disagree about what a card says.
+pub(super) fn sanitize_text<'a>(keyword: &str, s: &'a str) -> std::borrow::Cow<'a, str> {
     if is_printable_ascii(s) {
         return std::borrow::Cow::Borrowed(s);
     }
@@ -140,7 +146,9 @@ fn sanitize_text<'a>(keyword: &str, s: &'a str) -> std::borrow::Cow<'a, str> {
     std::borrow::Cow::Owned(cleaned)
 }
 
-fn fmt_real(kw: &str, v: f64) -> Result<String, FitsWriteError> {
+/// M4d Task 2: `pub(super)` for the same reason as `sanitize_text` above —
+/// the XISF writer formats a real by these rules, not its own.
+pub(super) fn fmt_real(kw: &str, v: f64) -> Result<String, FitsWriteError> {
     if !v.is_finite() {
         return Err(FitsWriteError::NonFiniteReal(kw.to_string()));
     }

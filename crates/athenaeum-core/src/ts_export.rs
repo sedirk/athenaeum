@@ -1,4 +1,4 @@
-//! Assembles the 6 frontend type files from the Rust model types.
+//! Assembles the 7 frontend type files from the Rust model types.
 //! Diffed against disk by tests/ts_contract.rs; regenerate with:
 //!   TS_RS_WRITE=1 cargo test -p athenaeum-core --test ts_contract
 //!
@@ -6,8 +6,11 @@
 //! (.superpowers/sdd/p1-ts-inventory.md): one line per mapped declaration, in
 //! the order it appeared in the original hand-written file. Cross-checked:
 //! none of the 138 mapped types reference a type that lives in a *different*
-//! one of the 6 output files, so none of the preambles below need an
-//! `import type { .. } from './other-file'` line.
+//! one of the original 6 output files, so none of THOSE SIX preambles need
+//! an `import type { .. } from './other-file'` line. The 7th file
+//! (`stacking.ts`, M1 Plan 5a Task 9) is the one exception: it imports
+//! `FlatNormMode`, `ExportReadiness`, `LightCalParams`, `PathSetting` from
+//! `./models` rather than redeclaring them.
 
 use ts_rs::TS;
 
@@ -145,9 +148,6 @@ pub fn generated_files() -> Vec<(&'static str, String)> {
             crate::models::MergeLogEntry,
             crate::flat_analysis::FlatContourOpts,
             crate::registration::db::FrameSetReference,
-            crate::registration::db::RegistrationRecord,
-            crate::registration::service::StackingPrepProgressEvent,
-            crate::registration::service::StackingPrepCompleteEvent,
             crate::logging::config::LoggingConfig,
             crate::logging::config::LoggingConfigResponse,
             crate::services::compute_queue::ComputeJobKind,
@@ -223,6 +223,9 @@ pub fn generated_files() -> Vec<(&'static str, String)> {
             crate::api::collab_exchange::ContributionView,
             crate::collab::gate::FrameGateRow,
             crate::collab::gate::ThresholdRuleView,
+            crate::updates::manifest::Channel,
+            crate::updates::UpdateCheck,
+            crate::updates::WhatsNew,
         ]))),
         ("archive.ts", js_safe_ints(format!("{HEADER}{}", decls![
             crate::archive::models::ArchiveDisposition,
@@ -293,6 +296,78 @@ pub fn generated_files() -> Vec<(&'static str, String)> {
         ("analysis-config.ts", js_safe_ints(format!("{HEADER}{}", decls![
             crate::analysis::config::AnalysisConfig,
             crate::rustafits_processor::AnnotationSettings,
+        ]))),
+        ("stacking.ts", js_safe_ints(format!(
+            "{HEADER}import type {{ ExportReadiness, FlatNormMode, LightCalParams, PathSetting }} from './models';\n\n{}",
+            decls![
+            crate::resample::Interpolation,
+            crate::stacking::prefilter::SeedPrefilter,
+            crate::stacking::structure::SeedDetector,
+            crate::stacking::psf_signal::PsfModel,
+            crate::stacking::weights::WeightMode,
+            crate::stacking::weights::FormulaWeights,
+            crate::stacking::weights::SelectionConfig,
+            crate::stacking::register::RegistrationGeometry,
+            crate::stacking::register::ModelChoice,
+            crate::stacking::register::DistortionChoice,
+            crate::stacking::register::DetectionConfig,
+            crate::stacking::register::RegistrationConfig,
+            crate::integration::stats::OutputNormalization,
+            crate::integration::stats::RejectionNormalization,
+            crate::integration::stats::ScaleEstimator,
+            crate::stacking::integrate::LocalNormalizationConfig,
+            crate::stacking::integrate::NormalizationConfig,
+            crate::integration::combine::Combination,
+            crate::stacking::integrate::RejectionChoice,
+            crate::stacking::integrate::LargeScaleRejection,
+            crate::stacking::integrate::IntegrationConfig,
+            crate::export::models::CalibratedLightOptions,
+            crate::stacking::config::GroupingConfig,
+            crate::stacking::config::MeasurementConfig,
+            crate::stacking::config::ReferenceMode,
+            crate::stacking::config::ReferenceConfig,
+            crate::stacking::config::DrizzleKernel,
+            crate::stacking::config::DrizzleConfig,
+            crate::stacking::config::OutputFormat,
+            crate::stacking::config::CleanupPolicy,
+            crate::stacking::config::OutputConfig,
+            crate::stacking::config::PathsConfig,
+            crate::stacking::config::StackingConfig,
+            crate::stacking::config::StackingPreset,
+            crate::api::stacking::StackingPresets,
+            crate::api::stacking::NamedPreset,
+            crate::stacking::groups::ColorMode,
+            crate::stacking::groups::ScaleSource,
+            crate::stacking::plan::Stage,
+            crate::stacking::plan::MasterWork,
+            crate::stacking::plan::PlanMaster,
+            crate::stacking::plan::PlanBlocker,
+            crate::stacking::plan::PlanGroup,
+            crate::stacking::plan::PlanReference,
+            crate::stacking::plan::StackingPlan,
+            crate::db::stacking::StackingRunRow,
+            crate::db::stacking::StackingRunGroupRow,
+            crate::db::stacking::StackingRunFrameRow,
+            crate::api::stacking::StackingRunSummary,
+            crate::stacking::provenance::SummaryReference,
+            crate::stacking::provenance::SummaryMeasurement,
+            crate::stacking::provenance::SummaryFrame,
+            crate::stacking::provenance::SummaryGroup,
+            crate::stacking::provenance::StageTiming,
+            crate::stacking::provenance::MasterBuilt,
+            crate::stacking::provenance::RunSummary,
+            crate::stacking::run::StackingProgressEvent,
+            crate::stacking::run::StackingMasterRef,
+            crate::stacking::run::StackingCompleteEvent,
+            crate::stacking::run::StartedStacking,
+            crate::api::stacking::StackingRunDetail,
+            crate::api::stacking::StackingSetConfig,
+            crate::api::stacking::StackingPaths,
+            crate::stacking::paths::WorkUsage,
+            crate::stacking::paths::CleanupWhat,
+            crate::stacking::integrate::GroupStats,
+            crate::stacking::drizzle::DrizzleStats,
+            crate::api::stacking::MasterLightKind,
         ]))),
     ]
 }

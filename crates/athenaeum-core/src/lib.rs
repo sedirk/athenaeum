@@ -18,6 +18,8 @@ pub mod relinking;
 pub mod frames_set_metadata;
 pub mod logging;
 pub mod events;
+pub mod resample;
+pub mod geometry;
 pub mod scanner;
 pub mod monitor;
 pub mod auto_merge;
@@ -42,11 +44,15 @@ pub mod archive;
 pub mod file_op;
 #[cfg(all(feature = "render", feature = "solver"))]
 pub mod registration;
+// stacking builds on astroimage (measurement) and, from Plan 3, registration.
+#[cfg(all(feature = "render", feature = "solver"))]
+pub mod stacking;
 // ts_export references types from every render/solver-gated module; it is a
 // build-time TS-generation harness driven only by tests/ts_contract.rs.
 #[cfg(all(feature = "render", feature = "solver"))]
 pub mod ts_export;
 pub mod api;
+pub mod updates;
 // Shared test fixtures. Test-only — nothing outside `#[cfg(test)]` may use it.
 #[cfg(test)]
 pub(crate) mod test_support;

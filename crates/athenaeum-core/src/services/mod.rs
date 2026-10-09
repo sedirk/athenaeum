@@ -16,8 +16,9 @@ use crate::settings::SettingsManager;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
-// RwLock is used only by the solver-gated cache fields below.
-#[cfg(feature = "solver")]
+// RwLock is used only by the `dso_catalog` field below, so it carries that
+// field's render+solver gate (a `solver`-only build has no RwLock user).
+#[cfg(all(feature = "render", feature = "solver"))]
 use std::sync::RwLock;
 
 /// Handle to track an active scan operation.
@@ -42,11 +43,6 @@ pub struct PlateSolveHandle {
     pub cancel_flag: Arc<AtomicBool>,
 }
 
-/// Handle to track an active frame-set registration operation.
-pub struct RegistrationHandle {
-    pub cancel_flag: Arc<AtomicBool>,
-}
-
 /// Handle to track an active archive operation (ZIP archive feature).
 /// Only one archive operation can run at a time, but the map allows
 /// querying state by operation_id.
@@ -62,6 +58,14 @@ pub struct MasterBuildHandle {
     pub cancel_flag: Arc<AtomicBool>,
 }
 
+/// Handle to track an active stacking run (M1 Plan 5a Task 6), keyed by
+/// `stacking_runs.id`. `frames_set_id` lets `cancel_stacking` and any future
+/// "is this set already running" check answer without a DB read.
+pub struct StackHandle {
+    pub cancel_flag: Arc<AtomicBool>,
+    pub frames_set_id: i64,
+}
+
 /// Shared application state accessible from any backend (Tauri, Axum, CLI).
 pub struct ServiceContext {
     pub db: OnceLock<Database>,
@@ -71,8 +75,6 @@ pub struct ServiceContext {
     pub active_exports: Arc<Mutex<HashMap<i64, ExportHandle>>>,
     pub active_analyses: Arc<Mutex<HashMap<i64, AnalysisHandle>>>,
     pub active_plate_solves: Arc<Mutex<HashMap<i64, PlateSolveHandle>>>,
-    /// Active registration operations, keyed by `frames_set_id`.
-    pub active_registrations: Arc<Mutex<HashMap<i64, RegistrationHandle>>>,
     /// Active archive operations (ZIP archive feature). Capped at one at a
     /// time by command-layer enforcement; HashMap form keeps the same shape
     /// as the other active-handle maps for consistency.
@@ -80,25 +82,16 @@ pub struct ServiceContext {
     /// Active master-build operations (Task 12), keyed by SOURCE calibration
     /// set id. Only one build per source set at a time.
     pub active_master_builds: Arc<Mutex<HashMap<i64, MasterBuildHandle>>>,
+    /// Active stacking runs (M1 Plan 5a), keyed by `stacking_runs.id`. Gated
+    /// to match `stacking`'s own home (`all(render, solver)`) — the module
+    /// does not exist at all in a headless build.
+    #[cfg(all(feature = "render", feature = "solver"))]
+    pub active_stacks: Arc<Mutex<HashMap<i64, StackHandle>>>,
     /// Lazy-loaded deep-sky object catalog, used to auto-label plate-solve
     /// results (e.g. "M 42", "NGC 7000"). Parsed on first use, then cached.
     /// Gated to match `DsoCatalog`'s home in the render+solver plate_solve module.
     #[cfg(all(feature = "render", feature = "solver"))]
     pub dso_catalog: Arc<RwLock<Option<Arc<DsoCatalog>>>>,
-    /// Lazy-opened solvemyastro star-cache (`stars.smac`). Loaded on first
-    /// solve attempt and shared read-only across all worker threads.
-    /// `None` until the cache file is located (opens from the `smac_gaia`
-    /// subdir of the app-data catalogs dir). If the file is absent the solve
-    /// command returns an actionable error.
-    #[cfg(feature = "solver")]
-    pub star_cache: Arc<RwLock<Option<Arc<solvemyastro::StarCache>>>>,
-    /// Optional bright sub-catalog (G<16 hybrid floor + density top-up;
-    /// built via `solvemyastro build-bright-cache`). When present, the
-    /// plate-solve hot path uses it for fast quad matching with
-    /// auto-fallback to `star_cache`. `None` if no bright cache is
-    /// available — production runs on the deep cache alone.
-    #[cfg(feature = "solver")]
-    pub bright_cache: Arc<RwLock<Option<Arc<solvemyastro::StarCache>>>>,
     pub image_pool: Arc<rayon::ThreadPool>,
     /// Single serialized worker queue shared by ZIP archive + file ops.
     /// Created at startup; lives for the process lifetime.
@@ -146,15 +139,12 @@ impl ServiceContext {
             active_exports: Arc::new(Mutex::new(HashMap::new())),
             active_analyses: Arc::new(Mutex::new(HashMap::new())),
             active_plate_solves: Arc::new(Mutex::new(HashMap::new())),
-            active_registrations: Arc::new(Mutex::new(HashMap::new())),
             active_archives: Arc::new(Mutex::new(HashMap::new())),
             active_master_builds: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(all(feature = "render", feature = "solver"))]
+            active_stacks: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(all(feature = "render", feature = "solver"))]
             dso_catalog: Arc::new(RwLock::new(None)),
-            #[cfg(feature = "solver")]
-            star_cache: Arc::new(RwLock::new(None)),
-            #[cfg(feature = "solver")]
-            bright_cache: Arc::new(RwLock::new(None)),
             image_pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)

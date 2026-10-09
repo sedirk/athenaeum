@@ -33,15 +33,6 @@ export interface BlackholeChangedEvent {
   action: 'blackholed' | 'restored';
 }
 
-// Result of the `check_for_updates` command. Fields are snake_case to match
-// the Rust command's serialization (see athenaeum-tauri commands::core).
-export interface UpdateInfo {
-  current_version: string;
-  latest_version: string;
-  is_update_available: boolean;
-  download_url: string;
-}
-
 /** Companion object for the generated `ImageType` string-literal union
  *  (models.rs `ImageType`, serde default variant naming — no rename_all).
  *  Variant strings copied from the generated `models.ts` union, which added
@@ -259,19 +250,6 @@ export interface MasterBuildCompleteEvent {
   error: string | null;
   warning?: string | null;
 }
-
-/** Registration status for a single frame. Note: the generated
- *  `RegistrationRecord.status` / `StackingPrepProgressEvent.status` fields
- *  are plain `string` (Rust field type is `String`, not an enum), so this
- *  narrower literal union is no longer structurally enforced there — kept
- *  here for call sites that still want the documented value set. */
-export type FrameRegistrationStatus =
-  | 'pending'
-  | 'aligning'
-  | 'aligned'
-  | 'aligned_flipped'
-  | 'reference'
-  | 'failed';
 
 /** Response from `compute_flat_contour_plot`. The `pixelsB64` field is the
  *  final 8-bit grayscale display image (length == width*height) base64-

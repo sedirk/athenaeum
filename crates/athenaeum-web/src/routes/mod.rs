@@ -26,6 +26,7 @@ mod duplicates;
 mod export;
 mod spatial;
 mod calendar;
+mod updates;
 mod images;
 mod missing_files;
 mod analysis;
@@ -37,6 +38,7 @@ mod plate_solve;
 mod registration;
 mod archive;
 mod masters;
+mod stacking;
 pub(crate) mod sync;
 mod account;
 mod collab;
@@ -189,6 +191,12 @@ pub fn build_router(state: WebAppState, static_dir: Option<PathBuf>) -> Router {
         .route("/api/get_frame_preview", post(images::get_frame_preview))
         // Calendar
         .route("/api/get_calendar_month_data", post(calendar::get_calendar_month_data))
+        // In-app updates
+        .route("/api/check_for_updates", post(updates::check_for_updates))
+        .route("/api/get_whats_new", post(updates::get_whats_new))
+        .route("/api/get_release_notes", post(updates::get_release_notes))
+        .route("/api/install_update", post(updates::install_update))
+        .route("/api/restart_app", post(updates::restart_app))
         // Analysis
         .route("/api/get_analysis_config", post(analysis::get_analysis_config))
         .route("/api/set_analysis_config", post(analysis::set_analysis_config))
@@ -221,12 +229,34 @@ pub fn build_router(state: WebAppState, static_dir: Option<PathBuf>) -> Router {
         .route("/api/get_catalog_status", post(plate_solve::get_catalog_status))
         .route("/api/get_frame_fov_summary", post(plate_solve::get_frame_fov_summary))
         .route("/api/download_catalog_layers", post(plate_solve::download_catalog_layers))
-        // Registration (stacking preparation)
-        .route("/api/register_frame_set", post(registration::register_frame_set))
-        .route("/api/get_frame_set_registration", post(registration::get_frame_set_registration))
-        .route("/api/cancel_frame_set_registration", post(registration::cancel_frame_set_registration))
+        // Registration (persisted reference frame)
         .route("/api/set_frame_set_reference", post(registration::set_frame_set_reference))
         .route("/api/get_frame_set_reference", post(registration::get_frame_set_reference))
+
+        .route("/api/get_stacking_plan", post(stacking::get_stacking_plan))
+        .route("/api/start_stacking", post(stacking::start_stacking))
+        .route("/api/cancel_stacking", post(stacking::cancel_stacking))
+        .route("/api/get_stacking_runs", post(stacking::get_stacking_runs))
+        .route("/api/get_stacking_run", post(stacking::get_stacking_run))
+        .route("/api/get_stacking_config", post(stacking::get_stacking_config))
+        .route("/api/set_stacking_config", post(stacking::set_stacking_config))
+        .route("/api/get_stacking_presets", post(stacking::get_stacking_presets))
+        .route("/api/list_stacking_presets", post(stacking::list_stacking_presets))
+        .route("/api/save_stacking_preset", post(stacking::save_stacking_preset))
+        .route("/api/delete_stacking_preset", post(stacking::delete_stacking_preset))
+        .route("/api/get_stacking_defaults", post(stacking::get_stacking_defaults))
+        .route("/api/set_stacking_defaults", post(stacking::set_stacking_defaults))
+        .route("/api/reset_stacking_defaults", post(stacking::reset_stacking_defaults))
+        .route("/api/get_stacking_paths", post(stacking::get_stacking_paths))
+        .route("/api/set_stacking_paths", post(stacking::set_stacking_paths))
+        .route("/api/get_stacking_work_usage", post(stacking::get_stacking_work_usage))
+        .route("/api/cleanup_stacking_work", post(stacking::cleanup_stacking_work))
+        // M4d Task 3 (ruling R-M4d-5): one handler, two entry points — the
+        // browser-friendly GET the Results card can point an `<img>` at, and
+        // the POST that mirrors the Tauri command name so `api.invoke`
+        // reaches it unchanged on both targets.
+        .route("/api/stacking/master-preview", get(stacking::get_master_light_preview_query))
+        .route("/api/get_master_light_preview", post(stacking::get_master_light_preview))
         // Archive feature
         .route("/api/get_archive_settings", post(archive::get_archive_settings))
         .route("/api/set_archive_root_path", post(archive::set_archive_root_path))
@@ -316,7 +346,6 @@ pub fn build_router(state: WebAppState, static_dir: Option<PathBuf>) -> Router {
         .route("/api/get_log_path", post(get_log_path))
         .route("/api/get_database_path", post(get_database_path))
         // Category A — Desktop-only stubs
-        .route("/api/check_for_updates", post(check_for_updates))
         .route("/api/read_fits_image_rustafits", post(read_fits_image_rustafits_stub))
         // Opt-in ATHENAEUM_API_KEY auth (routes/auth.rs). Layered BEFORE
         // `.with_state` below, on a self-contained key-holder state rather
@@ -408,19 +437,6 @@ async fn get_database_path(
 
 // ── Category A — Desktop-only stubs ──────────────────────────────────────────
 
-/// POST /api/check_for_updates — returns static no-update response
-#[tracing::instrument(skip_all)]
-async fn check_for_updates(
-    Json(_): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
-    let version = env!("CARGO_PKG_VERSION").to_string();
-    Json(serde_json::json!({
-        "current_version": version,
-        "latest_version": version,
-        "is_update_available": false,
-    }))
-}
-
 /// POST /api/relocate_missing_file — 501 in web mode (needs native file picker)
 #[tracing::instrument(skip_all)]
 async fn relocate_missing_file_stub(
@@ -437,8 +453,11 @@ async fn read_fits_image_rustafits_stub(
     (StatusCode::NOT_IMPLEMENTED, "read_fits_image_rustafits is not available in web mode".to_string())
 }
 
+// `pub(crate)` (Plan 5a Task 9): `routes::stacking`'s own router-level test
+// reuses this real-`WebAppState` builder rather than hand-rolling a second
+// one — same reasoning as the doc comment on `test_state` itself.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::events::SseEvent;
     use athenaeum_core::cache::MemoryImageCache;
@@ -467,7 +486,7 @@ mod tests {
     /// it's `None`. That 500 is exactly the "request got past auth" signal
     /// this test needs; a real DB would add setup cost without changing
     /// what's being verified (auth middleware coverage, not handler logic).
-    fn test_state(api_key: Option<&str>) -> WebAppState {
+    pub(crate) fn test_state(api_key: Option<&str>) -> WebAppState {
         let ctx = Arc::new(ServiceContext {
             db: OnceLock::new(),
             settings: Arc::new(SettingsManager::new()),
@@ -476,12 +495,10 @@ mod tests {
             active_exports: Arc::new(Mutex::new(HashMap::new())),
             active_analyses: Arc::new(Mutex::new(HashMap::new())),
             active_plate_solves: Arc::new(Mutex::new(HashMap::new())),
-            active_registrations: Arc::new(Mutex::new(HashMap::new())),
             active_archives: Arc::new(Mutex::new(HashMap::new())),
             active_master_builds: Arc::new(Mutex::new(HashMap::new())),
+            active_stacks: Arc::new(Mutex::new(HashMap::new())),
             dso_catalog: Arc::new(RwLock::new(None)),
-            star_cache: Arc::new(RwLock::new(None)),
-            bright_cache: Arc::new(RwLock::new(None)),
             image_pool: Arc::new(rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap()),
             // Spawns one real worker thread (see operation_queue.rs — there
             // is no lighter-weight constructor); matches that module's own

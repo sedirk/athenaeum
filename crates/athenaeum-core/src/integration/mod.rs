@@ -8,7 +8,12 @@ pub mod cfa;
 pub mod combine;
 pub mod engine;
 pub mod io_policy;
+pub mod plane_reader;
+pub mod registered_source;
+pub mod source;
+pub mod stats;
 pub mod storage_class;
+pub mod student_t;
 
 #[derive(Debug)]
 pub enum IntegrationError {
@@ -30,5 +35,7 @@ impl std::fmt::Display for IntegrationError {
 }
 impl std::error::Error for IntegrationError {}
 impl From<std::io::Error> for IntegrationError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }

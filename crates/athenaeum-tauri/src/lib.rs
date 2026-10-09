@@ -74,12 +74,10 @@ pub fn run() {
                     active_exports: Arc::new(Mutex::new(HashMap::new())),
                     active_analyses: Arc::new(Mutex::new(HashMap::new())),
                     active_plate_solves: Arc::new(Mutex::new(HashMap::new())),
-                    active_registrations: Arc::new(Mutex::new(HashMap::new())),
                     active_archives: Arc::new(Mutex::new(HashMap::new())),
                     active_master_builds: Arc::new(Mutex::new(HashMap::new())),
+                    active_stacks: Arc::new(Mutex::new(HashMap::new())),
                     dso_catalog: Arc::new(std::sync::RwLock::new(None)),
-                    star_cache: Arc::new(std::sync::RwLock::new(None)),
-                    bright_cache: Arc::new(std::sync::RwLock::new(None)),
                     image_pool: Arc::new(
                         rayon::ThreadPoolBuilder::new()
                             .num_threads(max_threads)
@@ -98,9 +96,14 @@ pub fn run() {
                 sync: Arc::new(athenaeum_core::sync::SyncRuntime::new()),
                 sync_sender: Arc::new(athenaeum_core::sync::SyncSenderRuntime::new()),
                 collab_sender: Arc::new(athenaeum_core::sync::SyncSenderRuntime::new()),
+                update_in_flight: std::sync::atomic::AtomicBool::new(false),
             }
         })
         .setup(|app| {
+            // The updater is registered in setup (the plugin's documented
+            // placement); it reads `plugins.updater` from tauri.conf.json.
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let app_handle = app.handle();
             let state: State<AppState> = app.state();
 
@@ -239,6 +242,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::initialize_database,
             commands::check_for_updates,
+            commands::get_whats_new,
+            commands::get_release_notes,
+            commands::install_update,
+            commands::restart_app,
             commands::add_scan_root,
             commands::get_scan_roots,
             commands::get_calibration_library_root,
@@ -431,12 +438,29 @@ pub fn run() {
             commands::add_archive_root,
             commands::delete_archive_root,
             commands::set_default_archive_root,
-            // Registration (stacking preparation)
-            commands::register_frame_set,
-            commands::get_frame_set_registration,
-            commands::cancel_frame_set_registration,
+            // Registration (persisted reference frame)
             commands::set_frame_set_reference,
             commands::get_frame_set_reference,
+            // Stacking (M1 Plan 5a)
+            commands::get_stacking_plan,
+            commands::start_stacking,
+            commands::cancel_stacking,
+            commands::get_stacking_runs,
+            commands::get_stacking_run,
+            commands::get_stacking_config,
+            commands::set_stacking_config,
+            commands::get_stacking_presets,
+            commands::list_stacking_presets,
+            commands::save_stacking_preset,
+            commands::delete_stacking_preset,
+            commands::get_stacking_defaults,
+            commands::set_stacking_defaults,
+            commands::reset_stacking_defaults,
+            commands::get_stacking_paths,
+            commands::set_stacking_paths,
+            commands::get_stacking_work_usage,
+            commands::cleanup_stacking_work,
+            commands::get_master_light_preview,
             commands::get_sync_pairing_ticket,
             commands::get_sync_status,
             commands::list_sync_history,

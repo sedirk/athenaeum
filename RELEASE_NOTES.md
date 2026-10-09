@@ -1,76 +1,71 @@
-*Master builds finish in a fraction of the time, Full Resolution finally means it for colour cameras, and every page remembers where you were.*
+*Athenaeum v0.6.4: the application updates itself — a new version is offered inside the app with its release notes, downloaded on your click, verified, installed and restarted, on macOS, Windows and Linux.*
+
+This is the first release that can be received without visiting the download
+page. It is also, by necessity, the last one you install by hand: a copy of
+v0.6.3 or older knows nothing about the new mechanism, so this one comes from
+the download page as before, and every release after it arrives through the
+app. Underneath it is the release machinery that v0.6.4-beta.1 rebuilt and
+exercised — every download is verified before it is announced, and now every
+update is signed before it is offered.
 
 ## What's New
 
-- **Master builds are about six times faster.** A 100-frame bias set that
-  took 233 seconds now takes 40, measured cold on a spinning disk with the
-  page cache cleared. The integration engine sizes its working band from the
-  machine's actual memory instead of a fixed constant, keeps that band in
-  the frames' own pixel format rather than widening everything to float on
-  the way in, and reads the frames of a band in parallel by position. Nothing
-  about the result changes: the same masters, pixel for pixel.
-- **A build now tells you what it is doing.** The calibration tree shows the
-  running build's stage and percentage, and each build writes a line to the
-  log when it starts and when it finishes, with its duration, read and
-  combine times, and throughput. A thirteen-minute build used to be
-  indistinguishable from a hung one.
-- **Full Resolution means native resolution for colour frames.** In Blink,
-  every one-shot-colour frame was rendered at half size even with the
-  full-resolution button pressed, because the fast debayer folds each 2×2
-  sensor tile into a single pixel. A 6248×4176 frame arrived as 3124×2088,
-  which made 1:1 star inspection — the reason that button exists —
-  impossible. Full Resolution now debayers at the native grid.
-- **Back and forward, everywhere.** Every page header carries a back/forward
-  pair, and Backspace, Alt+← / Alt+→ and, on macOS, ⌘← / ⌘→ step through
-  them. Returning to a page returns you to it: the File Manager, Objects and
-  Project Detail tabs come back as you left them, and the scroll position is
-  restored per history entry. History is per session, so a restart starts
-  fresh.
-- **The plate-solve input gate is in Settings.** The v0.5.5 notes said the
-  thresholds were there; they were not, and the sentence was retracted. They
-  are now: an **Input Gate** section with its toggle and both thresholds,
-  plus **Batch Concurrency** in Solver Parameters. The copy states the part
-  the numbers are useless without — that both conditions must hold at once,
-  and what the values are on frames that do and do not solve.
+- **Updates inside the application.** At launch Athenaeum checks for a newer
+  version (this is the existing *Automatically check for updates on startup* setting,
+  on by default). If there is one you get a toast, a bell entry and an
+  **Update available** dialog with the full release notes. Nothing is
+  downloaded until you click **Download and install**; a progress bar shows
+  the bytes, and when the package is in place you choose **Restart now** or
+  **Later**. On macOS the application bundle is replaced, on Linux the
+  AppImage, on Windows the installer runs by itself and relaunches the app.
+  Every package is checked against a signature the build produced; a package
+  that fails that check is refused before anything is touched, and the
+  download page stays one click away as the fallback.
+- **What's new, once.** The first launch of a new version opens a **What's
+  new** dialog with that version's own notes. It appears once per version;
+  **About → View release notes** shows the same text again at any time, and
+  works offline.
+- **Docker installs are told too.** The web UI runs the same check and shows
+  the same notes, with the `docker pull vsharifov/athenaeum:<version>` line
+  and a copy button in place of an install button — the image itself is
+  still pulled by whoever runs the container.
+- **A soft guard before restarting.** If a stacking run, a master build or a
+  transfer is in progress, the dialog says so before you restart. It never
+  blocks you; it just makes sure nothing is cancelled by surprise.
 
 ## Changes
 
-- **Folders:** an offline folder's banner has a **Check again** button, so a
-  drive you have just remounted is re-detected on the spot instead of
-  needing you to scan some other folder and let it re-check everything as a
-  side effect. A file that failed to parse during a scan gets a reveal
-  button next to its error, which opens the file manager at that file.
-- **Settings → Calibration → Master Build Memory:** a memory budget for the
-  integration engine. It explains rather than merely displays: if what you
-  typed is not what is applied — clamped to the supported range, divided
-  across concurrent jobs, or both — it says so and shows the figure actually
-  in force.
-- **Settings → Blink Viewer:** a memory limit for the preview cache, which
-  matters now that a full-resolution colour render is four times the size it
-  used to be.
-- **Windows is measured, not assumed.** The whole test suite now runs on
-  Windows in continuous integration and blocks a broken build. Getting there
-  fixed one real defect that shipped: a received file's path was stored with
-  a mixed path separator, which is corrected below.
+- **Signed updates.** Every updater package is signed at build time and its
+  signature is published beside it. The application carries the matching
+  public key and refuses anything that does not verify. The release pipeline
+  verifies the same signatures itself, from the public addresses, before the
+  update feed moves — a release that fails that check never becomes the one
+  the app offers.
+- **Two update channels.** The stable channel is the default; *Check for beta
+  updates* in Settings switches the check to the beta feed. A beta is never
+  offered to a stable install.
+- **Linux package installs stay manual.** An install from the `.deb` (or a
+  distribution package) is not updated in place — the app opens the
+  download page instead. The AppImage updates itself. Package-manager
+  updates are a scoped follow-up.
+- **The release machinery from v0.6.4-beta.1**, now behind a stable release
+  for the first time: every installer, both Docker architectures and the
+  release post are fetched back from their public addresses, and the macOS
+  disk images pass the same Gatekeeper check a new Mac performs, before
+  anything is announced or the version-less *latest* links move. Every
+  release keeps a permanent download folder of its own. One naming scheme
+  for every download across all three operating systems
+  (`athenaeum-0.6.4-macos-arm64.dmg`: product, version, system, processor
+  architecture — `x64` and `arm64` everywhere); the previous link spellings
+  keep working until v0.7.0. The download page and this post are generated
+  from the release notes, so the site cannot describe a release differently
+  from the release.
 
 ## Bug Fixes
 
-- **Deleting a missing master's file no longer strands its raw frames.**
-  Removing a master's file from the Missing Files panel deleted the row
-  directly, which left the master's empty shell behind and left the raw
-  calibration set still marked as superseded by it. Those raw frames became
-  invisible to calibration matching permanently, superseded by a master that
-  existed neither on disk nor in the catalog, with nothing in the interface
-  left to undo it. That route now goes through the same un-supersede path
-  every other way of deleting a master already used.
-- **Windows: a received file's path was stored with a mixed separator.**
-  Transfers landed catalog rows whose paths mixed both separators, so later
-  lookups against the same file could miss. Project contributions had the
-  same shape and are fixed with it.
-- **Windows: a relative path carrying a drive letter is refused.** The guard
-  only checked the front of the path, so a drive-letter segment further in
-  was accepted.
-- A full-resolution colour render in the web build now holds its slot for
-  the whole render rather than releasing it early, and the preview cache
-  limit is clamped on the backend, so a value typed into Settings cannot put
-  the render path into a state the interface would not allow.
+- No application code changed between v0.6.3 and v0.6.4 apart from the
+  update mechanism above. Two things around it were fixed along the way:
+  the macOS disk images were being notarized twice per release, and the
+  slowest database tests on Windows were running with a stricter disk-sync
+  setting than the application itself uses, turning a one-second test into
+  a minute.

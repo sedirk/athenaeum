@@ -38,10 +38,13 @@ supervisor `Elapsed(())` timeouts, one `expect_err` that succeeded for the
 wrong reason, and 27 more hidden in raw-string fixtures a first, too-narrow
 drift guard could not see.
 
-**One measurement is still owed on real CI hardware.** Every green reading is
-from one developer Windows box (31.5 GB, `-j 4`). A `windows-latest` runner is
-4 CPUs and 16 GB with no such headroom, and no amount of measuring on that box
-settles it — the first run on the actual runner is the only thing that will.
+**The real-CI measurement is taken.** The `windows-latest` job (4 CPUs,
+16 GB) has run green on `main` — first at `43270607` (2026-09-08, GitHub
+run 34241175780) — so the developer-box readings are confirmed on the
+runner. (From v0.6.1 to v0.6.2 both CI jobs were red on ONE deterministic
+test, `a_tps_run_never_holds_more_than_a_few_displacement_grids_at_once`,
+whose bound assumed a pool-bounded grid residency; fixed in v0.6.3 — see
+the Stacking v0.6.3 subsection below.)
 
 **`crates/perseus/src/` still has 14 slash-literal `join("M31/…")` fixture
 sites** (3 in `pending.rs`, 3 in `library.rs`, 6 in `web.rs`, 2 in
@@ -186,6 +189,627 @@ They read like bugs; they are not. Re-proposing them costs a cycle every time.
 
 Newest first. Every cycle below is code-complete with green gates and a clean final
 review; what is missing is a human running the flow on real data.
+
+### Stacking v0.6.3 — fix round (2026-09-15)
+
+Four owner-reported bugs after v0.6.2 plus the red CI, on `fix/v0.6.3`
+(`56f1cf53`..): the grid-residency test bound (`peak <= tps_frames` — the
+integration source holds one inverse grid per spline frame for the whole
+group, by design, R-T4-7), XISF `bounds`/`imageType`, the "Re-run from"
+menu rebuilt to spec §8 + the plan's cleanup note + `metrics` rows surviving
+`deleteIntermediates`, and per-frame progress from inside the fan-out stages
+(`FanOutTicker`) with an Integrate message. Unit-pinned: the ticker's
+monotonicity under free racing, the plan note's four cases, the cleanup
+kind list, the XISF attributes. Not run by hand:
+
+- **OWNER SMOKE OWED — XISF in the external tool:** header-patched copies of
+  the v0.6.2 masters were written beside the originals for exactly this
+  (`~/Pictures/ldn_test/ldn_final/LDN_1272_NoFilter_{osc_180s_160x,mono_180s_208x}_bounds.xisf`,
+  the only change being `bounds="0:1" imageType="MasterLight"` in the XML);
+  a v0.6.3-written master is the same header. What remains to confirm once
+  it opens: levels (samples above 1.0 in saturated cores — the range is
+  representable, not a clip), the mirrored orientation of a bottom-up set
+  (R-T2-1, unchanged), `colorSpace="RGB"` on a 3-plane weight map.
+- **OWNER CLICK-THROUGH OWED — progress on a real run:** Measure, Register
+  and Local normalization rows now move per frame during a group's
+  fan-out (they used to jump per group); the LN reference build shows
+  "building the LN reference from N frames · plane p/n" at 0 %; the
+  Integrate row reads `<group> · 37% · 3.2 GB / 8.1 GB · plane 1/3 · band
+  12/51`. Every running row is `count · percent · bytes · group ·
+  message` (`StageRow.tsx::progressText`). The throttle is unchanged
+  (300 ms), so a fast stage may still show only its first and last tick.
+- **OWNER CLICK-THROUGH OWED — the "Re-run from" menu:** with everything
+  cached the menu lists Calibrate / Measure / Register (/ Local
+  normalization) / Integrate, each live; after a `deleteIntermediates`
+  run the cacheable entries show `stale` and are inert, the footer says
+  "Nothing is cached — the run starts from Calibrate", and the plan
+  warning line names the run and the policy. The owner's own set (109,
+  prod catalog) is in exactly that state: run 1 cleaned it under v0.6.2,
+  so its `metrics` rows are gone too and the line will NOT say
+  "measurements are still cached" until a v0.6.3 run has measured it.
+- **Deferred, named:** `metrics` rows kept by `deleteIntermediates` are a
+  behaviour change for `get_stacking_work_usage`'s consumers only in the
+  sense that nothing counts them (they hold no bytes) — verify the
+  Working-folder card still reads 0 after a cleanup. The plan's
+  `cleanup_stale_note` keys on the LAST run only: a `deleteIntermediates`
+  run followed by a failed keepAll run yields no line (the staleness is
+  then two runs old); acceptable, the stage rows still show `Stale`.
+- **CI:** the release commit `f6312aef` was RED on both jobs — not on the
+  grid pin (green on both platforms) but on two WALL-CLOCK probes the
+  shared runners cannot honour: `local_normalization_sidecars_are_cached_
+  on_the_second_run` (a fully-cached `stage_output` took 1.03 s against a
+  1 s ceiling, Linux) and `sync_e2e::bidirectional_simultaneous_transfers_
+  both_complete` (announce→fetching gap 346 ms against a 300 ms ceiling,
+  Windows). Both ceilings are now logged-not-asserted under `CI`, the
+  functional pins (`cached_ln`, the relative serialization assertions)
+  untouched — the `ingest_releases_conn_between_frames` convention. The
+  follow-up commit on `main` after the tag is the first candidate for a
+  green reading; confirm both jobs on it. If another timing probe
+  surfaces, gate it the same way rather than widening a ceiling.
+
+### Stacking M4d — outputs (2026-09-14)
+
+M4d (plan `docs/superpowers/plans/2026-09-10-stacking-m4d-plan-outputs.md`,
+rulings R-M4d-1…7 plus the fix-round ruling R-T2-1): the calibrated CFA mosaic
+artifact and Bayer drizzle, an XISF writer for masters/drizzled masters/weight
+maps, the `master_lights` catalog table with a preview command and Results-card
+thumbnails, and named user presets beside the three built-in transforms.
+**Tasks 1–4 are code-complete with green gates and clean reviews
+(`4748f91c`..`7d5e4780`), and the LDN 1272 acceptance run (Task 6) RAN on
+2026-09-14 — `docs/superpowers/research/2026-09-14-m4d-acceptance-run.md`,
+runs 34–36, verdict "M4d is accepted".** The final whole-branch review's one
+Important finding is also fixed: the master-light preview render now takes
+`image_semaphore` on both hosts (a cache hit stays permit-free), and the
+Results card fetches a group's drizzle thumbnail only after its master
+thumbnail has resolved instead of firing both at once. Everything below is
+what the four task reports left open, plus what the acceptance run itself
+left behind.
+
+- **Acceptance run (Task 6), what it settled and what it owes:** Bayer drizzle
+  CLOSES the M3/M4a residual "OSC drizzled G/B ≈ 10–12 % broader than the
+  external tool's" — against the external CFA drizzle of the same frames our G
+  is +0.5 %, B +0.2 %, R +4 %. **Ruling R-T6-1:** the plan's colour-fringing
+  target "R/B centroid offset from G ≤ 0.1 px" is unattainable on this data by
+  construction — the external tool's own CFA drizzle measures 0.28 / 0.21 px and
+  the VNG-debayered control 0.15 / 0.13 — so it is re-stated as "offsets and
+  per-plane FWHM ratios within 25 % of the external CFA drizzle's, same
+  directions" (ours 0.36 / 0.23 px, R/G 1.24 vs 1.20): PASS. The broader R
+  plane in colour-pure drizzle (R/G 1.24 here, 1.20 external, 1.06 debayered) is
+  therefore a property of the data (a wavelength-dependent displacement that
+  registration on the G-dominated frame cannot follow), not of the deposit —
+  bounded by the 0.036 px same-star G agreement with the debayered control.
+  Cost if the ruling is wrong: a real sub-0.1-px deposit bias hiding under a
+  data-borne 0.3-px chromatic offset. **The XISF smoke FAILED on the owner's
+  machine (2026-09-15):** the external tool refused the v0.6.2 masters —
+  "Missing bounds Image attribute, which is mandatory for a floating point
+  real image" — fixed in v0.6.3 (`bounds="0:1"` + `imageType`, see the
+  Stacking v0.6.3 subsection). **OWNER SMOKES OWED:** the
+  desktop click-through of the preset menu (save-as inline form, apply disabled
+  during a run, delete confirm, the `'<name>'` label) and of the results-card
+  thumbnails (master + drizzle, both groups). Not exercised by the run:
+  `output.cleanup = deleteIntermediates` removing the mosaics (every acceptance
+  run keeps `keepAll`; the policy is the one already governing `calibrated/`,
+  unit-pinned in Task 1). Observation: the G plane's row-profile FFT line at the
+  512-row band period is 1.8× its neighbourhood on the Bayer drizzle (R 0.66×,
+  B 0.41×; the fold test shows no seam) — mild, worth a look if a seam is ever
+  reported on a colour-pure drizzle. Deferred minor: the stacking paths gate
+  reuses `api::sync::validate_transfer_dir`, so its overlap warning about the
+  stacking OUTPUT folder reads "transfer folder overlaps a scan root"
+  (`api/sync.rs:267`) — log wording, pre-existing since Plan 5a.
+
+- **Task 1 (Bayer drizzle):** `DrizzleStats` carries no Bayer marker of its
+  own — a run's provenance says whether it drizzled Bayer-pure only through
+  `summary.config.drizzle.bayer`. At drizzle scale 1 with Bayer on, the R and
+  B planes are 75 % zeros (only their own colour sites deposited), so their
+  per-plane `fwhm`/`noise` stats are meaningless at that scale — don't read
+  them there. The mosaic file is read once per OUTPUT plane, i.e. 3× per OSC
+  frame, instead of once — a per-frame mosaic-plane cache would cut that I/O
+  3× if Task 6's timings show it matters. A frame whose own `BAYERPAT` the
+  catalog cannot parse never gets a mosaic and recalibrates on every run —
+  by design (warned once per frame, never eliminated: eliminating it needs a
+  per-frame phase read in both the plan gate and the run, or a "nothing to
+  keep" marker artifact). Coverage above drizzle scale 1 is unpinned by any
+  test — Task 6 measures it against R-M4d-7's target (R/B ≈ 0.25–0.5 of G's).
+- **Task 2 (XISF output):** XISF masters of bottom-up sets are NOT
+  row-flipped — flipping would have to transform the master's WCS/SIP cards
+  too (`CRPIX2`, the CD matrix, the odd-`v` SIP terms), which is its own
+  feature; the follow-up is named "flip rows + transform WCS/SIP" (ruling
+  R-T2-1). The rejection maps' missing `ROWORDER` is fixed in the final
+  review wave (`rejection_map_cards` now copies it through, matching
+  `weight_map_cards`). `XISF:CreationTime` is the wall clock, so an XISF
+  master is not byte-reproducible across two runs of the same input —
+  every byte-identity pin stays on `format = fits`. A non-ASCII card value
+  logs the sanitize warning twice (once in `xisf_keyword_value`, once in
+  the shared card-parity check). The "defaulted `0:1` bounds" premise was
+  wrong — the format has NO default for a float image and the attribute is
+  mandatory; v0.6.3 writes it. What the external tool still has to confirm
+  (v0.6.3 subsection): the padding declared inside `headerLength`, samples
+  above `1.0`, and `colorSpace="RGB"` on a 3-plane weight map.
+- **Task 3 (`master_lights` + preview):** the group-row `update_group` call
+  and the `master_lights` inserts share one pooled connection but are NOT one
+  `rusqlite` transaction (the pre-existing shape of `update_group`) — a crash
+  between them leaves a group row naming a master with no catalog row for it.
+  A `master_lights` insert failure in the drizzle-success arm fails the group
+  even though the master is already written on disk (consistent with the
+  adjacent `update_group(...)?`, which has the same property; if the policy
+  is revisited, move the three inserts and two updates together). Cache
+  freshness (`cached_at >= master_mtime`) has a same-second window on
+  coarse-mtime filesystems. `list_master_lights` has no production caller —
+  it is brief-mandated API surface, not dead code. The default preview size
+  512 is stated on both sides of the boundary (the command's default arg and
+  the frontend hook's default). The Results card's `<img>` used to carry
+  `loading="lazy"`, which deferred nothing because `useMasterPreview` fetches
+  eagerly on mount — removed in the final review wave (`89bc6d9c`), which also
+  made the card fetch the drizzle thumbnail only after the master's resolves.
+  The plan text's own R-M4d-5 wording and one test doc comment
+  (`api/stacking.rs`, near `master_preview_caches_and_re_renders_when_the_
+  master_changes`) still showed the superseded `_<max_px>.jpg` cache-file
+  pattern (fix round 1 keyed the cache on the resolved render STEP instead)
+  — the test doc comment was fixed as part of this docs task (a comment-only
+  edit); the plan text is left as-is, as history.
+- **Task 4 (user presets):** `StackingSection.tsx`'s own preset selector
+  (Settings → Stacking, the global defaults) was NOT extended with user
+  presets — out of the brief's scope, still built-ins only.
+  **OWNER CLICK-THROUGH OWED:** the tab's preset menu — save-as
+  inline form, apply, delete confirm, and the quoted label. Deferred minors
+  from the Task 4 review: Escape inside the inline save form closes the
+  WHOLE menu, not just the form (an acknowledged trade-off, noted in a code
+  comment); `StackingTab.tsx` grew +259 lines this task — a `PresetMenu`
+  component is the obvious seam the next time the file is touched; the
+  `<input maxLength>` counts UTF-16 units while the server counts scalar
+  values (the client is stricter for astral characters, so this can never
+  cause a spurious server-side rejection); and no test exercises real
+  contention on the presets' `BEGIN IMMEDIATE` transaction (`begin_presets_
+  write`).
+- **Cross-task:** the headless check (`cargo check -p athenaeum-core
+  --no-default-features`) does not exercise `integration/` or `stacking/` —
+  already recorded under Stacking M4c below; one pointer is enough rather
+  than repeating the finding.
+
+### Stacking M4c — algorithms (2026-09-12)
+
+M4c (plan `docs/superpowers/plans/2026-09-10-stacking-m4c-plan-algorithms.md`,
+rulings R-M4c-1…11 plus the fix-round rulings R-T0-1/2, R-T2-1, R-T3-1, R-T4-1…5 and
+R-T5-1/2): the structure-map seed detector as an option
+(`measurement.seedDetector`, default `peak`); min/max, generalized ESD and RCR as
+user-chosen pixel rejection with the Auto ladder unchanged; Winsorized sigma clipping
+on the reference loop with a zero-MAD fallback; large-scale rejection through
+processed `.rejl` bitmaps and a second integration pass with its own `pass2/` bitmap
+set; thin-plate-spline distortion with the local distortion loop; and LN's local-scale
+spline plus the barycentre second matching pass. **Tasks 0–5 are code-complete with
+green gates and clean reviews, and the LDN 1272 acceptance re-run (Task 7) RAN on
+2026-09-12 — `docs/superpowers/research/2026-09-12-m4c-acceptance-run.md`, runs 22–33,
+verdict "M4c is accepted"** (its own rulings and follow-ups are the Task 7 bullet near
+the end of this subsection). Everything below is what that run weighed, or what it
+left behind.
+
+- **Not re-measured (Task 0, minor m9):** the Measure stage's memory admission was
+  sized for the peak detector; the structure path allocates its own map, blurred and
+  dilated copies per plane and nobody re-measured the admission against it.
+- **Residual (OSC), second signature (Task 0, ruling R-T0-2):** two unrelated noise
+  estimators agree to 11 % on the mono planes but diverge 1.67 / 2.20 / 2.04× on the
+  debayered OSC R/G/B (176 real planes), which is exactly where both detectors
+  overshoot the external tool's fit counts. The structure map halved the M4a excess
+  (3.8–6.9× → 2.46–3.86×) without closing it and made OSC blue worse (PSFSW ρ 0.683 →
+  0.423), so the next investigation is the VNG-debayered planes or the PSF fitter's
+  acceptance on them, **not another detector**.
+- **Deferred (Task 1 review, 5 minors):** the `robust.rs` cross-check comment
+  overclaims f32/f64 sameness for its planted values (`6 + 0.5k + 0.01·seed` is not
+  f32-exact); the board labels `Min/max (l/h)` / `ESD (f, α, ρ)` / `RCR (limit)` are
+  capitalised and parenthesised against the lowercase house style (the brief's verbatim
+  text, kept this cycle); the RCR clean pin sits at exactly 57/60 with zero margin and
+  wants a "this means the estimator moved" comment; `rcr_line_fit_deviation` does a
+  TLS + `RefCell` + SipHash lookup per phase-0 iteration (the first suspect if RCR is
+  slow in Task 7) and inserts a degenerate `sxx ≤ 0` entry; `t_quantile` returns the
+  bracket end silently.
+- **Re-tune candidate (Task 2):** the Auto ladder's Winsorized thresholds (4.0/3.0,
+  `8 ≤ n < 20`) may want a re-tune now that the scale they multiply is ≈ 14 % smaller
+  on real stacks — measured on 21 LDN 1272 mono frames, rejection ×2.54 at +2.0 %
+  master noise and −3.9 % PSF SNR. Task 7's call, the same kind of calibration
+  `LINEAR_FIT_SIGMA_SCALE` got in M4a.
+- **Cost, bounded (Task 2, ruling R-T2-1):** a zero-MAD stack always burns the 20-pass
+  cap, ≈ 4.8× a non-degenerate stack of the same size, so the worst case is ≈ 5× the
+  combine phase on a fully tied integer bias master. Outcome-insensitive (any cap ≥ ~8
+  passes leaves the same survivors); if a real bias build ever looks slow, this is the
+  first place to look.
+- **Gate correction (Task 2, verified):** `cargo check -p athenaeum-core
+  --no-default-features` does **not** exercise `integration/` — `lib.rs` gates it on
+  `render`, proven by a deliberate type error in `combine.rs` that left the headless
+  check green. Only `geometry/` is genuinely ungated among the trees this cycle
+  touched. Related: `cargo test --lib` hides example breakage; re-gate a
+  public-signature change with `cargo check -p athenaeum-core --all-targets`.
+- **Deferred (Task 3, large-scale rejection):** the filter's scratch is `2 · W · H`
+  bytes per rayon worker (≈ 52 MB at 6248×4176, ≈ 520 MB transient on a 10-worker
+  pool), unbounded — a row-ring `hsum` plus bitset masks would bring it to ≈ 7 MB per
+  worker; `large_scale_rejected_fraction` counts bits over the full geometry including
+  never-covered pixels while its doc says "samples"; the majority cascade needs a DENSE
+  rejected structure, so a sparse real-trail mask may be erased (Task 7 check m5: does
+  mono frame `_0085`'s mask survive the cascade?); **no preset enables the feature**
+  (adding it to `MaximumQuality` would double every such run's integration time —
+  owner call); the "drizzle skipped … second pass's rejection bitmaps are unavailable"
+  warning is not gated on drizzle being enabled, so standalone large-scale with a
+  `pass2/` write fault warns about a drizzle that never ran; and the "pass-2 set
+  unusable → skip drizzle, no fallback to pass-1 bits" path has no persisted regression
+  test (verified by reading, the sabotage was reverted rather than committed). Pass 1
+  also still computes rejection maps that pass 2's replace when `writeRejectionMaps` is
+  on.
+- **Deferred (Task 4, TPS):** the grid RELEASE mechanism landed after the acceptance
+  run's first TPS attempt stalled the machine (ruling R-T4-6, `8f7f1242`: every stage
+  releases a frame's grid when done with it; `set_plane` wired so integration opens
+  ONE source per group — R-T4-7); what remains is residency — integration holds one
+  inverse grid per frame for a whole group (≈ 208 × 4.5 MB ≈ 0.9 GB on this set; a
+  per-band release would rebuild every grid every band) and drizzle rebuilds a colour
+  frame's forward grid once per plane (the plane loop is outer; ≈ +8 min on 160 OSC
+  frames — swapping the nesting means restructuring the per-plane I/W accumulators);
+  the doc drift the last fix round left is CLOSED by the final fix wave (the enum
+  doc's build count and its derived minutes, the five stale "8.6 MB per direction"
+  copies in `pixel_map.rs`/`writer.rs` → 4.5 MB, and the two comments R-T4-7 made
+  stale in `integrate.rs` ~1185 and `ln/reference.rs` ~9 — `registered_source.rs`
+  ~99 was never stale, it describes LN accurately); what that same enum's cost table
+  still ignores is the large-scale second pass; **LN could use `set_plane` the way
+  R-T4-7 wired integration** — `ln/mod.rs` ~405 opens a `RegisteredSource` per frame
+  PER PLANE inside its own plane loop, so an OSC frame builds three displacement
+  grids in the LN stage where one would do (2 of 3 builds per colour frame saved, the
+  same change integration already took); `drizzle::band_source_window` costs a few
+  hundred exact probes × up to 600 nodes per band on a TPS map; **a TPS row's
+  hold-out `rms_px` is not
+  comparable with a polynomial row's in-sample `rms_px`**, and the frames table shows
+  both in one column (1.47 px against 0.93 px on the same scene, with the spline 11×
+  more accurate against the truth field) — the column wants a note or a split; the
+  `pair_through` two-subjects-one-reference correspondence ambiguity stands for **every
+  model** (TPS is merely the first consumer that cannot tolerate it — `dedupe_nodes`
+  guards the spline, nothing resolves the pairing itself); in the cap-bites branch an
+  UNselected duplicate pair stays in the hold-out set (asymmetric with the 80/20
+  branch, never flattering); a superseded incumbent's note can survive a kept round in
+  `warnings`; and nothing in the tests distinguishes the common-set accept guard
+  (R-T4-5) from the old per-model one (the `dedupe_nodes` doc and the dead
+  `TpsGrid::len`/`is_empty` were fixed in fix round 2).
+- **Deferred (Task 5, LN):** the ±1–2·σ_z local-scale ripple SHIPS — with `localScale`
+  on and no true structure the sampled `A` carries a spurious smooth surface of
+  peak-to-peak 0.92–2.18·σ_z (10 seeds, σ_z ∈ [0.031, 0.038]), pinned at 3.0·σ_z by a
+  no-gradient control; Task 7 variant E weighs it against the real flat-field residual,
+  and only then does the math reference's surface-simplification step or a node-count-
+  aware λ get implemented (ruling R-T5-1). `ln_pass` and `ln_local_nodes` reach the
+  **logs only** — not `LnFrameOutcome`, the run summary or provenance — and do not
+  exist at all on a cache hit, so "how often pass 2 fires on real frames" is
+  unmeasured. The trailing-node clamp convention (`(i·stride).min(width−1)`, shared
+  with `background_grid` and `ln_probe`) lives in prose at three sites rather than in a
+  shared helper. A comment in the noise-control test misattributes σ_z ≈ 0.03 to the
+  `NOISE` level where `LOUD` is what produces it.
+- **CLOSED (Task 0, comment-only, final fix wave):** `structure_map`'s 0.56× → 0.60×
+  for the sensitivity-0.5 plane-anchored ratio (the figure the adjacent pin states);
+  the noise-comparison doc table's `all` row now says its min/max ARE the group
+  extremes and names the source report's 2.2443 as the transcription typo it is; and
+  the "correlated noise" attribution is hedged to "consistent with", the evidence
+  being a ratio rather than a measurement of the correlation.
+- **Deferred (whole-branch review, recorded by the final fix wave, not fixed):**
+  - a TPS `transform_json` is ≈ 100 KB per frame (≈ 40 MB of `registration_results`
+    rows per 368-frame `tps` run), and with `writeRegisteredFrames` on it becomes an
+    `ATH_REGT` CONTINUE chain of ≈ 140 KB per registered frame —
+    `fits_writer/card.rs` puts no cap on a chain's length, and **no test round-trips a
+    TPS map through `build_registered_cards` → `FitsHeader::get_str`** (the existing
+    round-trip pin writes a plain `homography`, no distortion at all, so its
+    `transform_json` is one card), so that is an untested combination. Both
+    toggles default off, which is why it is a note and not a blocker.
+  - `ln::scale::fit_local_scale` dedupes its nodes by reference INDEX but has no
+    `align::dedupe_nodes` equivalent — no `TPS_MIN_NODE_SEPARATION_PX` separation
+    test — so two DISTINCT reference stars closer than 0.05 px would make the
+    Bookstein system singular and the whole local-scale surface is dropped with a
+    `warn!` instead of one node being removed. Honest, just more pessimistic than it
+    needs to be; never observed on real data (688/688 channel-frames fitted in the
+    acceptance run).
+  - `student_t::with_esd_lambdas` does one thread-local `RefCell` borrow plus a
+    SipHash `HashMap` lookup PER PIXEL STACK (≈ 26 M per plane). Correct and bounded,
+    but it is the first thing to look at if ESD ever reads slow; hoisting the
+    `(n, alpha)` slice per band would remove both.
+  - **PRE-EXISTING, outside this branch:** 85 references to another image-processing
+    application BY NAME across `src/` and `crates/` — including a serde wire token
+    (`FlatNormMode` in `src/types/models.ts` ~745 and its Rust source), which cannot
+    be renamed without a migration. A project-wide naming cleanup with its own cycle,
+    not an M4c item; M4c's own code names nothing.
+- **Owed (owner), after Task 7:** an own look at the acceptance masters and the desktop
+  click-through of what M4c added to the tab — the Measure panel's `Seed detector`
+  select (with the two peak-only controls disabled under `structure`), the Integrate
+  panel's three new rejection methods and its Large-scale rejection block, the Register
+  panel's `tps` distortion with `TPS smoothing (λ)` and `Local distortion loop`, and
+  the Normalize panel's now-live `localScale` checkbox. Task 7 will add its own lines.
+- **Task 7 acceptance (2026-09-12, `docs/superpowers/research/2026-09-12-m4c-acceptance-run.md`):**
+  the Winsorized deferral of spec §6.3 is CLOSED — the real master dark rebuilt with the
+  new reference loop sits inside every target (median −0.002 %, MAD +0.010 %, hot pixels
+  −0.855 %). The lines that stay open from the run:
+  - **RCR and Winsorized clip star cores on the OSC red plane** (RCR: faint-star peak
+    p10 0.67× the baseline's, second-moment width +3.4 %; Winsorized 4/3: p10 0.73×,
+    width +1.0 %; mono, G/B and the brightest stars untouched) — a Chauvenet / k·σ high
+    side on the skewed per-pixel distribution of VNG-interpolated cores. Both are opt-in
+    and outside the Auto ladder at n ≥ 20; the Integrate panel's help owes a caution for
+    colour data (final fix wave), a star-protecting variant is a later item.
+  - **ESD rejects 0.15 %** on this set (the brief's 1–5 % was a guess; the trail is
+    still rejected) and every non-linear-fit method's master is 6–13 % quieter than the
+    5.0/3.5 linear fit's — the Auto linear-fit thresholds cost real noise for their 3 %;
+    a re-tune candidate, not an M4c defect.
+  - **Large-scale rejection costs 3.5× the integration time** (37 vs 11 min) for no
+    visible gain on a set whose one trail the per-pixel clip already removes; its case
+    is the shoulder a per-pixel clip misses (pinned synthetically).
+  - **TPS: ruling R-T7-1 sets `tpsSmoothing`'s default to 0.5** (hold-out rms 0.099 /
+    0.156 px vs 0.145 / 0.203 at λ = 0; 5.6 % of frames reach the 3-round cap at 0.5) —
+    the final fix wave changed the default. It does NOT move "the registration hash for
+    `tps` sets only", as this bullet first claimed: `registration_subtree` serializes
+    `cfg.registration` whole (no `skip_serializing_if`), so `tpsSmoothing` is in every
+    set's registration hash whatever the distortion — the pin
+    `the_tps_fields_move_the_registration_stage_hash` shows it under `distortion: off`.
+    A default-VALUE change alters only documents that OMIT the field (a stored
+    `"tpsSmoothing": 0.0` stays 0.0 — serde's default fills a missing field only), and
+    the hash consequence was already absorbed when M4c added the field: every set
+    re-registers once on the first M4c run, as CLAUDE.md says. A TPS run costs ≈ +25 %
+    wall (49 vs 40 min) from the per-stage grid
+    rebuilds; drizzle still rebuilds a colour frame's forward grid once per plane
+    (≈ +8 min on 160 OSC frames — the plane loop is outer); integration holds one
+    inverse grid per frame for a whole group (≈ 0.9 GB at 208 frames). No measurable
+    FWHM gain over `polynomial3` on this field.
+  - **The M3 drizzled OSC G/B FWHM residual (≈ +6 % ratio) is unchanged under TPS** —
+    it is not registration distortion; the VNG planes / M4d's Bayer drizzle own it.
+  - **LN local scale's ripple is measurable:** +3.1 / +5.4 % master noise on G/B at
+    σ_z ≈ 0.10 (R −3.4 %), corners < 0.1 %, LN time within noise; the math reference's
+    surface-simplification step (or a node-count-aware λ) is the follow-up before the
+    flag can default on. The barycentre pass won on 6.2 % of channel-frames.
+  - **Owed (owner):** the desktop click-through of the Integrate / Register / Normalize /
+    Measure panels (two Chrome instances were connected to the automation; a static
+    check of the served bundle stands in), and the Windows/Linux runs.
+
+### Stacking M4b — mixed pixel scales (2026-09-11)
+
+M4b (plan `docs/superpowers/plans/2026-09-10-stacking-m4b-plan-mixed-pixel-scales.md`,
+rulings R-M4b-1…9): per-frame pixel scale from the stored plate solve or the header
+(`GroupFrame.pixel_scale_arcsec`/`scale_source`) feeding a plan-time WARNING (never a
+blocker) and a per-frame registration scale gate centred on the frame's own implied
+ratio to its reference; a WCS seed built from both frames' plate solves when both are
+solved, falling back to the quad matcher otherwise; a `registration.geometry:
+coRegistered | native` mode where native gives each group its own reference and
+geometry with no cross-group registration; and the frames table's `WCS` chip on a
+seeded row's registration model.
+
+- **Acceptance run 2026-09-11** (`docs/superpowers/research/2026-09-11-m4b-acceptance-run.md`, 7 runs on the
+  30-best-frames subsets of sets 166 / 108 / 195, both modes): every cross-scale group registered onto
+  its reference through the plate-solve seed at the expected scale — ×0.207 and ×1.457 (set 166, rms
+  ≤ 0.61 px), ×0.502 (set 108, rms ≤ 1.02 px, same-star centroids 0.15 px between the bin-1 and bin-2
+  masters), ×1.285 (set 195's 352-mm subsets, rms ≤ 0.64 px); native mode gave each group its own
+  reference, geometry and WCS with `ATH_RGEO = 'native'`; the reference's own master is bit-identical
+  between the modes on all three sets; the header convention R-M4b-1 held on 1 781 solved frames
+  (0 beyond 2 %). Four acceptance-time fixes landed: T6-F1 (plan-gate readiness and scale statistics
+  over the included frames, R-T6-6/7), R-T6-4 (seed trigger 5 %), R-T6-9 (the plate-solve seed as the
+  fallback after a quad failure), R-T6-8/10 recorded as data/target rulings.
+- **Residual (registration):** the quad seed does not converge for an H-alpha field against an O-filter
+  reference of the SAME rig (set 195: 14 of 30 frames, both field rotations, all well solved) — now
+  carried by the plate-solve fallback (R-T6-9); the quad matcher's own robustness across filters is an
+  M4c registration item (spec §14).
+- **Policy (M4c):** `failOnMaxRms` off lets a registration with rms 44 px into the stack with only a
+  warning (one H frame of set 195, an H→O quad mis-match that "succeeded") — treat an RMS beyond a hard
+  multiple of `maxRmsPx` as a registration FAILURE so the fallback and the exclusion apply.
+- **Calibration matcher (not M4b):** frame geometry (`NAXIS1/2`) is not a matching parameter — a
+  same-camera calibration set from another ROI links (set 166: a 9576×6388 flat matched a 6384×4258
+  master dark) and the master build refuses it at run time; the plan gate cannot see it.
+- **Noise:** the run emits one `skipped: fewer than 3 included frames` warning per excluded group (14 on
+  set 195) — fold them into one line.
+- **Deferred (final review, R-T6-9 re-review):** a solved reference frame that needs fresh registration
+  builds one wasted `seed_from_solves`; when quads partially succeed, drop below `MIN_INLIERS`, and the
+  hint fails to confirm too, no warning records the hint attempt.
+- **Deferred (final review):** the Stacking tab now shows two differently-scoped `Scale` columns — the
+  groups table's is the group's PIXEL scale in "/px (R-M4b-7), the frames table's is each frame's LN
+  RELATIVE scale — told apart only by their header tooltips; one of the two wants a clearer name.
+- **Owed (owner):** own look at the masters of a real mixed-scale set in both modes —
+  the Ghost Nebula (set 195, ×1.27 within one group — masters `Ghost_Nebula_QHY_{H,O}_mono_300s_*`),
+  M 78 (set 108, bin 1 + bin 2 — `M_78_L_mono_*`), and the ×7 / ×4.8 set 166 — and the desktop click-through of the Geometry radio, the
+  `Scale` column with its `×r` badge and the frames table's `WCS` chip (the acceptance
+  verifies them through the web build only).
+- **Data limitation, recorded:** set 138's 352-mm 20 s groups have no flats at that
+  focal length and no 20 s darks in the catalog (the app's own matcher refuses the
+  30 s/−10 °C darks), so the ×2.82 case was swapped for set 166 (ruling R-T6-3 in the
+  plan's ledger); set 138 stays as the negative case — its plan must show the `links`
+  blocker.
+- **Deferred (final review):** native-mode register staleness reads only the last
+  done run's `summary_json` (the brief's stored-metrics best-by-weight first is not
+  implemented), and because `SummaryGroup.reference_frame_id` is `Some` only for a
+  written master, a group that registered but wrote no master reads stale — the
+  conservative direction (a redundant re-register, never a stale cache trusted).
+- **Deferred (final review):** in native mode one group's `reference_stars` failure
+  fails the whole run, consistent with stage 5's existing policy but a new blast
+  radius since groups are otherwise independent — real data (Task 6) decides whether
+  it needs a per-group `fail_group` path. The same whole-run failure applies to
+  `resolve_group_geometry`'s per-group `frame_calibration_hash` at stage 4: one
+  group's unresolvable hash takes the run down with it, for the same reason and with
+  the same fix if one is wanted.
+- **Deferred (final review):** `run.rs` is ≈ 13 000 lines after M4b — a
+  `stacking/register_stage.rs` extraction is due before M4c adds to stage 5.
+- **Deferred (final review):** `GroupsTable.tsx` hand-mirrors `SCALE_TOLERANCE = 1.25`.
+- **Deferred (final review):** `groups.rs::median_f64` duplicates `weights::median_of`.
+- **Deferred (final review):** `align.rs::gate_center` reconstructs the applied gate
+  from `expected` (exact for both producers today).
+- **Deferred (final review):** the dead `order.clamp` in
+  `plate_solve/storage.rs::sip_pair`.
+- **Deferred (final review):** `drizzle/geom.rs` imports through `geometry::linear::`
+  instead of the re-export.
+- **Deferred (final review):** coverage gaps — the 500-id chunk boundary of the
+  solve-scale query, a reference frame without a scale, a partially-scaled group.
+
+### Stacking M4a — measurement seeds and the PSF fitter (2026-09-11)
+
+M4a (plan `docs/superpowers/plans/2026-09-10-stacking-m4a-plan-quality.md`, rulings R-M4a-1…19): noise-relative measurement seeds (`measurement.detectionSigma`, calibrated to 20 on 368 external frames) with the reference's adaptive region and inner-region acceptance; the linear-fit rejection on the minimum-absolute-deviation line; the two-pass registration-reference pick; the LN row-evaluator weight table and borrowed reference planes; the XISF reader fixes; `PSF_FIT_VERSION` in both artifact hashes. **Acceptance run 2026-09-11** (`docs/superpowers/research/2026-09-11-m4a-acceptance-run.md`, run 13 on LDN 1272, 56 min): mono meets every target (fits 1.02/1.05/0.82 of the external tool's, PSFSW ρ 0.92, top-20 18/20, drizzle ratio equal to the external's to 0.6 %); rejected fractions 2.985 % / 2.733 % at the Auto 5.0/3.5 with `LINEAR_FIT_SIGMA_SCALE` left at 1.0; the two-pass pick switched the reference to the frame the owner had pinned by hand (`_0073`); LN 368/368 with no exclusions (the R-M4a-15 recompute confirmed against M2's numbers). Two residuals, both OSC, recorded below.
+
+- **Residual (OSC weights):** the bright, undersampled night (measured FWHM 1.55 px)
+  still yields 3.8–7× the reference's fit count (run 13: OSC PSFSW ρ 0.93/0.82/0.68 against ≥ 0.90; top-20 15/20 passes; the M3 night inversion is gone); two bounded experiments with a
+  3×3 median pre-filter on the detection image (rulings R-M4a-13/-14, the
+  option ships off) closed ~20 % of it and cost the blue channel's weight
+  correlation. Closing it properly needs the rest of the reference's
+  structure-map front end (math reference §5.1) — tracked as M4c Task 0
+  (the structure-map seed detector, ruling R-M4c-11), not a smoke.
+- **Plan-gate note (twoPass).** With `reference.twoPass` on,
+  `plan.rs::compute_register_stale` (ruling R-M4a-6) correctly reports
+  Register "not stale" against a switched reference — but the two-pass
+  pick's own dry pass over the reference's group is NOT cached and reruns
+  on every run regardless of staleness (bounded, ≈ 1–2 min on the LDN 1272
+  acceptance set). Informational, not a bug.
+- **Cleanup candidate: `MeasureOptions.min_snr ≤ 10` is inert.** The
+  detector's own gate (`snr > 10`) already excludes everything a
+  `min_snr` at or below 10 would filter, so such a config value changes
+  nothing measurable; noted for a future cleanup pass, not fixed here.
+- **Two pre-existing load flakes seen during M4a** (both pass in
+  isolation, both predate this cycle — not new regressions): the M3
+  drizzle `rej/run-<id>` cleanup-on-cancel tests (a race that Task 4's
+  RAII de-registration change narrows but does not fully close) and
+  `sync::ingest_tests::ingest_releases_conn_between_frames` (a
+  self-documented timing probe).
+
+- **Residual (OSC drizzle):** the G/B drizzled/undrizzled FWHM ratio is 0.836 / 0.819 against
+  the external tool's 0.744 / 0.737 under the same (new) estimator — +12 / +11 %, the M3 residual
+  unchanged in kind; the weight change moved it by ≈ +1 %. Ruled out so far: rejection strength,
+  level conventions, registration distortion, weights. M4c: a common-subset drizzle with both weight
+  sets and a star-by-star comparison across magnitudes (the external R plane is its own outlier, ecc 0.41).
+- **Integrate stage cost (ruling R-M4a-17):** run 13's Integrate took 10.85 min for both groups against
+  run 11's clean 5.01 (2.2×, at the revisit threshold) — measured while the controller's own comparison
+  scripts ran on the same machine, so an upper bound; the mono group alone was 1.7×. The hybrid option
+  (the robust line on the first rejection iteration, least squares afterwards) is the recorded fallback if a
+  clean re-measurement exceeds 2×.
+- **Owed:** the owner's own click-through on the desktop build of the Measure panel's `Detection threshold (σ)`
+  field, the Reference panel's `Two-pass pick` checkbox and the results card's `switched from #… (two-pass)` line
+  (the acceptance verified them through the LAN browser's accessible text only — the narrow viewport refused
+  screenshots again).
+- **Owed:** one M4a run on Windows and one on Linux (the web build) — the two-pass dry pass and the `.rej`
+  sink condition are the platform-neutral parts; nothing platform-specific was added, but the suite's two
+  load flakes (below) are worth watching there.
+
+### Stacking M3 — drizzle (2026-09-10)
+
+M3 (drizzle 1×/2×/3× with exact-clipping square drops or tabulated circle/
+gaussian ones, per-frame rejection bitmaps, weights and local normalization,
+the weight map, a scaled WCS, `DrizzlePanel` live) plus Task 8, the
+sky-penalized normalization anchor (ruling R-M3-17). Acceptance run on the
+real LDN 1272 catalog on 2026-09-10 — note
+`docs/superpowers/research/2026-09-10-m3-acceptance-run.md`: drizzle 2× on
+both groups, level-preserving, seam-free, fully covered; the mono
+drizzled/undrizzled FWHM ratio equals the external reference's to 0.05 %; the
+OSC master now matches the external one in level and background shape after
+Task 8. Two misses/gaps recorded below.
+
+- **M4 item: the OSC drizzle is ≈ 10 % broader than the external one by the
+  fitted FWHM** (G/B ratios 0.83 / 0.82 vs 0.75 / 0.74; re-measured under the M4a estimator in run 13: 0.836 / 0.819 vs 0.744 / 0.737 — see the M4a section) while the same bright
+  stars' half-maximum radii are 4 % smaller in ours and our drizzle carries
+  26 % less pixel-scale noise at equal master noise. Ruled out: rejection
+  strength, level conventions, registration distortion (polynomial3 changed
+  nothing). Compare star by star across magnitudes; drizzle a common subset
+  with both weight sets.
+- **Provisional constant:** `DRIZZLE_SECONDS_PER_PLANE_AT_2X = 1.2` in
+  `stageSummary.ts` measured 1.17 s (mono) / 1.33 s (OSC per plane) on a
+  clean 16 GB machine — keep; revisit with the M4 performance work.
+- **Owed:** the owner's own click-through of the Drizzle panel, the board
+  toggle and the drizzled lines on the results card on the desktop build
+  (the acceptance click-through ran over the LAN and the Windows browser's
+  renderer refused screenshots after the notifications dialog — the results
+  card was verified through its accessible text only).
+- **Owed:** one drizzled run on Windows and one on Linux — the `.rej`
+  positional writes (`write_at` / `seek_write`) and the memory refusal are
+  the platform-specific parts.
+
+### Stacking M2 — local normalization (2026-09-10)
+
+M2 (local normalization: background-model grids, PSF-flux scale, `.athln`
+sidecars, the LN reference, `NormalizePanel`'s LN block). Acceptance run on
+the real LDN 1272 catalog on 2026-09-10 — note
+`docs/superpowers/research/2026-09-10-m2-acceptance-run.md`: LN end-to-end
+on both groups (368/368 sidecars, no exclusions), master noise at 0.89–1.13×
+the external reference, no mesh imprint at the grid stride, cached sidecars
+re-used on a re-run from Integrate, cleanup removes `ln/`. Two attributed
+misses, both recorded below.
+
+- **Attributed miss (no code): LN stage time.** ≈ 28 min for 368 frames
+  (mono ≈ 19 frames/min, OSC ≈ 10/min) on the 16 GB acceptance machine —
+  the per-frame fan-out admits one OSC frame at a time under the RAM probe,
+  so the stage is memory-bound, not CPU-bound. Re-measure on a ≥ 32 GB
+  machine before treating it as a performance defect; the M4 performance
+  item covers the algorithmic side (detect-once, shared star lists). Partly
+  addressed in the M2 final fix wave: the reference's star fit was being
+  recomputed per frame (`relative_scale`); hoisted into a per-group
+  `PreparedReferenceChannel` so it now runs once per group, not once per
+  frame — the per-frame PSF cost roughly halves. Re-measure this stage's
+  wall time in M3's acceptance run.
+- **Owed:** the owner's own click-through of the LN block on the desktop
+  build (Enable local normalization, scale, reference frames, the `local`
+  rejection-normalization option and its 5 s reset notice, `LN: n/m frames`
+  in Results, the frames table's Scale column) and of the narrow-layout
+  toolbar: the acceptance click-through at ≈ 1250 CSS px found the toolbar
+  row overflowing the pane (fixed in the M2 final fix wave — the fix is what
+  needs the owner's eyes at 1024 px).
+- **Owed:** one LN run on Windows and one on Linux (the web build) — the
+  sidecar writer's tmp-and-rename and the fan-out's RAM probe are the
+  platform-specific parts.
+
+### Stacking M2 — camera-agnostic grouping (2026-09-10)
+
+M2 Task 10 (owner decision 2026-09-10): groups are now keyed by colour
+mode/filter/binning/exposure cluster, not camera/geometry — the group key
+string format changed (`<mono|osc>__<filter>__bin<n>__<exposure cluster>`,
+no camera/geometry token; master filenames now always carry a colour-mode
+token instead, fix round 1 ruling).
+
+- **Carry-over (no code, fix round 1 item 8):** the OLD key format's
+  `calibrated/<old key>/` working-folder trees and their `stacking_artifacts`
+  rows are orphaned by the key change — nothing looks them up under the new
+  key, and nothing cleans them up automatically. "Delete intermediates"
+  (Settings → Stacking → Cleanup, `output.cleanup`) clears them along with
+  everything else in the working folder; absent that, the first post-change
+  run on an affected set simply recalibrates (stage 1 finds no fresh
+  artifact under the new key and redoes the work — no correctness issue,
+  just a one-time cache miss and stale bytes left behind until a manual/
+  `cleanup_stacking_work` sweep).
+
+### Stacking M1 — the Stacking tab (2026-09-10)
+
+M1 Plan 5b (the Stacking tab, Settings → Stacking, retirement of the
+plate-solve-era registration flow). Acceptance run passed on the real LDN 1272
+catalog on 2026-09-10 — note `docs/superpowers/research/2026-09-09-m1-acceptance-run.md`
+(the run rebuilt its own ten calibration masters from an empty library, and its
+masters are bit-identical to Checkpoint B's; one attributed miss: measurement
+time on a 16 GB machine). The tab is enabled for every build since that run.
+
+- **Owed:** the owner's own click-through of the Stacking tab on the desktop
+  build — board/inspector/frames/results, Settings → Stacking, the frame-set
+  page showing no Registration tab — and specifically the **narrow-layout
+  check** (disclosure, toolbar wrap, table overflow at ≈ 900 px), which the
+  acceptance harness could not take (its browser window ignored resizes).
+- **Owed:** one stacking run on Windows and one on Linux (the web build) — the
+  acceptance run was macOS only; the folder validator, `statvfs` free space and
+  the fan-out's RAM probe are the platform-specific parts.
+- **Follow-up (web host, found by the acceptance run):** opening Settings →
+  General wedged the web server — `api::account::build_status` →
+  `TokenStore::load` → `SecKeychainFindGenericPassword` blocked in a mach
+  call to `securityd` (a macOS Keychain access prompt for an unsigned binary)
+  and every other request queued behind it. The account status must not block
+  the runtime: `spawn_blocking` around the keychain read and no shared lock
+  held across it.
+- **Follow-up (M4 performance):** the measurement fan-out admits
+  `clamp(RAM/4 ÷ working set, 1, cores)` frames and the working set is
+  8 planes × W × H × 4 B — on a 16 GB machine that is one OSC frame at a
+  time (10.4 min for 368 frames vs the 5 min target). Measurement needs far
+  fewer than eight full planes resident; recompute the working set from what
+  the measurement actually holds.
+- **Minor UI (fix wave of Plan 5b):** Integrate summary "min weight 0.01" for
+  0.005; master labels with 0-decimal exposures ("Flat 0s"); the Integrate
+  row's "N / M · P %" pairing a per-group count with the current group's band
+  percentage; the main pane scrolled horizontally after the provenance modal
+  (frames table wider than the pane); a cancelled run's board showing every
+  stage as "Skipped" (Calibrate had completed from cache, Measure was
+  interrupted); "—" in the frames table's Group column before any run.
+- **Dev-workflow note:** the Vite dev server cannot call a separately running
+  web API (no CORS layer, no proxy) — for a same-origin dev run build the
+  frontend with `NODE_ENV=development VITE_TARGET=web npx vite build --outDir <dir>`
+  and serve it with `ATHENAEUM_STATIC_DIR=<dir>`.
+- **Follow-up (not a bug, Task 8b fix round 1):** Stage 0.5's
+  pre-calibration listing is a plan-time choice: when a raw flat set links a
+  RAW DarkFlat sub-cal set, `select_flat_precal` skips it at plan time and
+  names the Dark master, but the run builds that darkflat master first (it
+  is in `raw_sets_without_master`) and the flat's rebuild then prefers it —
+  a Dark listed that way is rebuilt without being read (harmless), or, if
+  unrebuildable, blocks a run that would not have read it. Fix when it
+  bites: re-resolve after the darkflat builds, or list both.
 
 ### Lights + calibration sets export lands raw originals, not built masters (2026-09-08)
 
@@ -765,35 +1389,73 @@ cycle, so anything from them that matters later belongs here or in a plan.
   Settings card, with the full-hash confirm unchanged as the safety net. A
   mismatch (WCS written into one copy, parser drift between versions) costs a
   re-transfer, never a loss. A protocol cycle of its own; proposed: defer.
+- **The full analysis path under-reports eccentricity on trailed frames**
+  (full detail: `docs/backlog-v0.5.6.md` item 4). The full detector's shape
+  stamp (`1.5 × field FWHM`) is self-reinforcing on a streak's small-FWHM
+  bright head — measured 0.56 where the fast path (stamp follows the star's
+  own size, `2 × HFD`) sees 0.88 on the same real frame. Consequence: the
+  Analysis table rates a badly-trailed frame well, and the plate-solve input
+  gate (which reads this number) misses it — plate-solving itself is not
+  fooled, it re-measures shape at its own scale. Not the maths that's open:
+  changing the stamp changes `median_eccentricity` for every frame already
+  catalogued, so the open call is the re-analysis story (bulk re-analysis pass
+  vs. the two measurements coexisting for a while). Branch
+  `feature/star-detection-fix` exists in both repos, **not pushed**.
+- **One place to watch what the app is doing** (full detail:
+  `docs/backlog-v0.5.6.md` item 5). Progress today is scattered per feature:
+  the sidebar `ComputeQueueIndicator` lists `running`/`queued` only, no
+  stage/percent; a master build's stage and percent render nowhere but a 10px
+  table cell on the Coverage tab; Analysis, transfers, scan, export and
+  archive each own a separate widget. Owner's 2026-09-07 verdict: current
+  state acceptable for now, not blocking. Open: sidebar slide-over vs. a page;
+  whether `ComputeQueueEntry` growing a subject id (enough to join an existing
+  progress stream) is sufficient on its own; whether the per-feature widgets
+  fold into it or stay as they are.
+- **Duplicate cache rebuild is quadratic, unthrottled, and runs
+  unconditionally on every scan** (full detail: `docs/backlog-v0.5.6.md` item
+  9, raised 2026-09-16). Scan Phase 4 (`scanner/mod.rs:1941-2015`) rebuilds
+  the *entire* duplicate-groups cache — twice, once per `DuplicateKey::Header`
+  and once per `DuplicateKey::Master`, each a full recompute with a separate
+  prepared statement and row-by-row insert per duplicate group — plus the
+  O(folders²) folder-similarity pass, on **every** scan, gated only on
+  `!result.cancelled` (no check for "nothing changed"). This includes
+  unattended monitor polls every 10 minutes (`MONITORING_INTERVAL_MINUTES`,
+  default), whose own doc comment assumes an unchanged re-scan is "effectively
+  free" — true for the file walk, not for this phase.
+  `duplicates/backfill.rs::fill_master_strong_hashes` also runs synchronous,
+  single-threaded, unthrottled full-file hashing on the scan's own thread,
+  unlike its sibling `run_content_index`, which is deliberately chunked and
+  throttled to protect the app's IO. Diagnosis only — no fix shape chosen, no
+  per-phase timing measured yet on a large catalog. Candidates worth
+  evaluating once measured: skip Phase 4 when nothing changed and no stale
+  duplicate rows exist; background/throttle `fill_master_strong_hashes` the
+  way `run_content_index` already is; make the cache rebuild incremental
+  instead of a full recompute; replace the O(folders²) folder-similarity
+  comparison with an indexed SQL join.
+- **A symlink-crossing scan root logs as flatly "not resolvable", with no hint
+  it was a symlink.** Raised by the owner 2026-09-17. `check_scan_root_overlap`
+  (`api/scan_roots.rs:340-345`) calls `Path::canonicalize()` on every existing
+  scan root, which walks and resolves every symlink on the path; when a root
+  (or an intermediate component) crosses a symlink whose target volume is
+  momentarily unmounted, this fails with a bare `No such file or directory (os
+  error 2)` and falls back to comparing by the stored path — correct, and
+  already handled gracefully — but the WARN gives no way to tell "the whole
+  root is offline" apart from "a symlink further down the chain briefly lost
+  its target". Observed on `/Volumes/Universe/Astrophotography`: WARNs on
+  2026-09-14/15, then the same root scanned successfully (5611 found) on
+  2026-09-16 — confirms it was the symlink target coming and going, not the
+  root itself, an intermittent condition rather than a defect. Open: worth
+  teaching the WARN to name the first unresolvable path component and whether
+  it is a symlink (`std::fs::symlink_metadata` per component, or
+  `std::fs::read_link` on the failing segment), so this reads as "symlink
+  target N unavailable" instead of an unqualified "root offline" — not
+  researched into a concrete diff yet.
 
 ---
 
 ## Release notes owed at the next tag
 
-(The v0.5.1–v0.5.5 lines were paid at their own tags.)
-
-- Full resolution in the Blink viewer now debayers one-shot-colour frames at their
-  native resolution with gradient interpolation, instead of halving them. Colour
-  frames finally show every pixel the sensor recorded.
-- The Blink image cache is now bounded in megabytes as well as in frame count, so a
-  full-resolution session cannot quietly grow to gigabytes.
-- The plate-solve input gate — the check that refuses a frame whose stars are
-  streaks before a solve is attempted — now has controls in Settings → Plate
-  Solving: an on/off toggle and the two thresholds it compares. The worker count
-  for batch solving is adjustable in the same place.
-- Deleting a missing file that happens to be a master no longer strands the raw
-  frames it was built from: the source set goes back to being matchable, exactly
-  as it does when a master is removed any other way.
-- Files that could not be read during a scan can now be revealed in the file
-  manager straight from the scan-error list.
-- A folder whose drive went away can be re-checked in place. Plug the drive back
-  in, press **Check again**, and the folder comes back — no more scanning some
-  other folder to make the app notice.
-- The **Lights + calibration sets** export and send now land the raw calibration
-  frames again once masters have been built from them. Building a master had
-  quietly turned this mode into a copy of **Lights + masters**; the raw sets are
-  back, with their own darks and biases beneath them. Raw frames that were
-  archived after the build are reported up front, before anything is written.
-- The Calibration Library folder now lists its missing files like any other
-  folder, so a master whose file is gone can be removed from the catalog right
-  there — which also hands its raw frames back to the matcher.
+(The v0.5.1–v0.6.1 lines were paid at their own tags — the Blink full-resolution debayer,
+the cache limit, the plate-solve gate controls, the master-deletion un-supersede, the
+scan-error reveal and **Check again** at v0.5.6; the **Lights + calibration sets** raw
+originals and the role-folder missing files at v0.6.0. Nothing is owed after v0.6.2.)

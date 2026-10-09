@@ -97,3 +97,131 @@ fn fixtures_never_seed_a_raw_canonicalized_path() {
          `TempDir` just to canonicalize a path you already have."
     );
 }
+
+/// Row-major float plane with Gaussian stars `(x, y, amplitude)` of common
+/// `sigma` on a flat `background`. Pixel centres at integer coordinates.
+pub(crate) fn gaussian_field(
+    w: usize,
+    h: usize,
+    stars: &[(f64, f64, f64)],
+    sigma: f64,
+    background: f32,
+) -> Vec<f32> {
+    let mut data = vec![background; w * h];
+    let s2 = 2.0 * sigma * sigma;
+    for &(sx, sy, amp) in stars {
+        let r = (5.0 * sigma).ceil() as i64;
+        let (cx, cy) = (sx.round() as i64, sy.round() as i64);
+        for y in (cy - r).max(0)..=(cy + r).min(h as i64 - 1) {
+            for x in (cx - r).max(0)..=(cx + r).min(w as i64 - 1) {
+                let d2 = (x as f64 - sx).powi(2) + (y as f64 - sy).powi(2);
+                data[y as usize * w + x as usize] += (amp * (-d2 / s2).exp()) as f32;
+            }
+        }
+    }
+    data
+}
+
+/// Background-subtracted intensity-weighted centroid in a `(2r+1)²` box
+/// around `(x0, y0)`. NaN samples are skipped.
+pub(crate) fn centroid(
+    data: &[f32],
+    w: usize,
+    x0: f64,
+    y0: f64,
+    r: usize,
+    background: f32,
+) -> (f64, f64) {
+    let (cx, cy) = (x0.round() as i64, y0.round() as i64);
+    let h = data.len() / w;
+    let (mut sx, mut sy, mut sw) = (0.0f64, 0.0f64, 0.0f64);
+    for y in (cy - r as i64).max(0)..=(cy + r as i64).min(h as i64 - 1) {
+        for x in (cx - r as i64).max(0)..=(cx + r as i64).min(w as i64 - 1) {
+            let v = data[y as usize * w + x as usize];
+            if !v.is_finite() {
+                continue;
+            }
+            let v = (v - background).max(0.0) as f64;
+            sx += v * x as f64;
+            sy += v * y as f64;
+            sw += v;
+        }
+    }
+    (sx / sw, sy / sw)
+}
+
+/// Background-subtracted flux in the same box (NaN skipped).
+pub(crate) fn flux(data: &[f32], w: usize, x0: f64, y0: f64, r: usize, background: f32) -> f64 {
+    let (cx, cy) = (x0.round() as i64, y0.round() as i64);
+    let h = data.len() / w;
+    let mut sum = 0.0f64;
+    for y in (cy - r as i64).max(0)..=(cy + r as i64).min(h as i64 - 1) {
+        for x in (cx - r as i64).max(0)..=(cx + r as i64).min(w as i64 - 1) {
+            let v = data[y as usize * w + x as usize];
+            if v.is_finite() {
+                sum += (v - background) as f64;
+            }
+        }
+    }
+    sum
+}
+
+/// Adds zero-mean Gaussian noise of `sigma` in place (Box–Muller over a
+/// SplitMix64 stream seeded by `seed`), so a fixture's noise is reproducible.
+pub(crate) fn add_noise(data: &mut [f32], sigma: f32, seed: u64) {
+    let mut rng = crate::geometry::ransac::SplitMix64(seed);
+    let mut i = 0;
+    while i < data.len() {
+        let u1 = rng.next_f64().max(1e-12);
+        let u2 = rng.next_f64();
+        let r = (-2.0 * u1.ln()).sqrt();
+        let (s, c) = (2.0 * std::f64::consts::PI * u2).sin_cos();
+        data[i] += (r * c) as f32 * sigma;
+        if i + 1 < data.len() {
+            data[i + 1] += (r * s) as f32 * sigma;
+        }
+        i += 2;
+    }
+}
+
+/// One elliptical Moffat star for [`moffat_field`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MoffatStar {
+    pub x: f64,
+    pub y: f64,
+    pub amp: f64,
+    pub alpha_x: f64,
+    pub alpha_y: f64,
+    pub theta: f64,
+}
+
+/// Row-major float plane of elliptical Moffat stars
+/// `A·(1 + (u/αx)² + (v/αy)²)^(−β)` with `u = dx·cosθ + dy·sinθ`,
+/// `v = −dx·sinθ + dy·cosθ`, rendered out to `12·max(αx, αy)` on a flat
+/// `background`. Pixel centres at integer coordinates. The total flux of
+/// one star is `π·A·αx·αy/(β − 1)`; the flux inside its FWTM ellipse is
+/// that times `1 − 10^{1/β − 1}`.
+pub(crate) fn moffat_field(
+    w: usize,
+    h: usize,
+    stars: &[MoffatStar],
+    beta: f64,
+    background: f32,
+) -> Vec<f32> {
+    let mut data = vec![background; w * h];
+    for s in stars {
+        let r = (12.0 * s.alpha_x.max(s.alpha_y)).ceil() as i64;
+        let (cx, cy) = (s.x.round() as i64, s.y.round() as i64);
+        let (st, ct) = s.theta.sin_cos();
+        for y in (cy - r).max(0)..=(cy + r).min(h as i64 - 1) {
+            for x in (cx - r).max(0)..=(cx + r).min(w as i64 - 1) {
+                let (dx, dy) = (x as f64 - s.x, y as f64 - s.y);
+                let u = dx * ct + dy * st;
+                let v = -dx * st + dy * ct;
+                let q = (u / s.alpha_x).powi(2) + (v / s.alpha_y).powi(2);
+                data[y as usize * w + x as usize] += (s.amp * (1.0 + q).powf(-beta)) as f32;
+            }
+        }
+    }
+    data
+}

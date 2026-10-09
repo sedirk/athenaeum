@@ -79,15 +79,12 @@ fn test_ctx() -> (tempfile::TempDir, ServiceContext) {
         active_exports: Arc::new(Mutex::new(HashMap::new())),
         active_analyses: Arc::new(Mutex::new(HashMap::new())),
         active_plate_solves: Arc::new(Mutex::new(HashMap::new())),
-        active_registrations: Arc::new(Mutex::new(HashMap::new())),
         active_archives: Arc::new(Mutex::new(HashMap::new())),
         active_master_builds: Arc::new(Mutex::new(HashMap::new())),
         #[cfg(all(feature = "render", feature = "solver"))]
+        active_stacks: Arc::new(Mutex::new(HashMap::new())),
+        #[cfg(all(feature = "render", feature = "solver"))]
         dso_catalog: Arc::new(RwLock::new(None)),
-        #[cfg(feature = "solver")]
-        star_cache: Arc::new(RwLock::new(None)),
-        #[cfg(feature = "solver")]
-        bright_cache: Arc::new(RwLock::new(None)),
         image_pool: Arc::new(
             rayon::ThreadPoolBuilder::new()
                 .num_threads(1)

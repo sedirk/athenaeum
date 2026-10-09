@@ -34,6 +34,17 @@ COPY solvemyastro/ solvemyastro/
 RUN mkdir -p crates/athenaeum-core/src && echo "pub fn _dummy() {}" > crates/athenaeum-core/src/lib.rs \
     && mkdir -p crates/athenaeum-web/src && echo "fn main() {}" > crates/athenaeum-web/src/main.rs
 
+# Stub every explicit [[example]] target of athenaeum-core. Cargo refuses to
+# parse a manifest whose named example file is missing ("can't find
+# `band_profile` example"), and the dev probes only arrive with the real
+# sources below — the v0.5.6 and v0.6.0 Docker Hub jobs both died on this
+# `cargo fetch`. The names are read from the manifest, so a new probe needs
+# no edit here.
+RUN mkdir -p crates/athenaeum-core/examples \
+    && grep -A1 '^\[\[example\]\]' crates/athenaeum-core/Cargo.toml \
+       | sed -n 's/^name = "\(.*\)"$/\1/p' \
+       | while read -r e; do echo "fn main() {}" > "crates/athenaeum-core/examples/$e.rs"; done
+
 # Exclude athenaeum-tauri (desktop shell), catalog-builder (offline dev
 # tooling), log-mcp (dev-time log query server), and perseus (headless capture
 # agent — its own binary crate, not part of the web build) from the workspace
@@ -61,6 +72,12 @@ RUN cargo build --release --package athenaeum-web 2>/dev/null || true
 # Copy real source and build
 COPY crates/athenaeum-core/ crates/athenaeum-core/
 COPY crates/athenaeum-web/ crates/athenaeum-web/
+
+# athenaeum-core embeds this at compile time (in-app "What's new" — see
+# crates/athenaeum-core/src/updates/notes.rs) via a path relative to the
+# repo root, so it must exist in the build context even though the release
+# workflow's other version files never enter Docker.
+COPY RELEASE_NOTES.md ./
 
 # Touch source files to invalidate the dummy build cache
 RUN touch crates/athenaeum-core/src/lib.rs crates/athenaeum-web/src/main.rs

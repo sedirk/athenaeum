@@ -1,4 +1,4 @@
-//! Per-pixel robust integration recipes — PixInsight's two-axis model
+//! Per-pixel robust integration recipes — the reference's two-axis model
 //! (Combination × Rejection). Spec:
 //! `docs/superpowers/specs/2026-07-06-master-integration-pi-model-design.md`.
 //!
@@ -6,15 +6,43 @@
 //! surviving samples) with a [`Rejection`] algorithm that decides which
 //! samples survive first. Rejection runs per pixel stack; the combination
 //! then applies to the survivors — every rejection composes with either
-//! combination (PI semantics).
+//! combination (the reference semantics).
 //!
 //! The pre-2026-07-06 flat `CombineMethod` enum is retained only as a private,
 //! deserialize-only [`LegacyCombineMethod`] so old `recipe_json` blobs still
 //! parse (spec §3). Its equivalences: `Mean` = Average+None, `Median` =
 //! Median+None, `WinsorizedSigmaClip` = Average+WinsorizedSigma,
-//! `PercentileClip` = Average+PercentileClip — pinned bit-for-bit by the tests.
+//! `PercentileClip` = Average+PercentileClip. `Mean` and `PercentileClip`
+//! are still pinned bit-for-bit by the tests; `WinsorizedSigmaClip` maps to
+//! the same recipe but no longer to the same NUMBERS — ruling R-M4c-3 moved
+//! the winsorized fixed point onto the reference loop (see
+//! [`reject_winsorized`]).
 
+use super::student_t;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+/// A stack element the rejection routines can order and read: the plain
+/// sample for master builds, a `(value, frame index)` pair for the
+/// stacking engine, which needs to know WHICH frames survived.
+pub trait Sample: Copy {
+    fn value(self) -> f32;
+}
+
+impl Sample for f32 {
+    #[inline]
+    fn value(self) -> f32 {
+        self
+    }
+}
+
+impl Sample for (f32, u16) {
+    #[inline]
+    fn value(self) -> f32 {
+        self.0
+    }
+}
 
 /// Fixed upper bound on the rejection refit loop (spec §1) so an adversarial
 /// pixel stack can never spin unbounded on this hot path.
@@ -48,7 +76,7 @@ impl IntegrationRecipe {
 }
 
 /// How the surviving samples are collapsed into the output pixel. `Average`
-/// is PI's name for our historical `Mean`.
+/// is the reference's name for our historical `Mean`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Combination {
@@ -72,7 +100,7 @@ impl Combination {
 pub enum Rejection {
     /// Keep every sample.
     None,
-    /// PixInsight-style percentile clipping around the median m: reject x when
+    /// Reference-style percentile clipping around the median m: reject x when
     /// (m - x)/|m| > low or (x - m)/|m| > high. Deviations normalized by |m|
     /// so thresholds are sign-agnostic.
     PercentileClip { low: f64, high: f64 },
@@ -80,15 +108,36 @@ pub enum Rejection {
     /// [m − sigma_low·σ, m + sigma_high·σ] of the current survivor set until
     /// stable. Zero-dispersion sets converge immediately with no rejection.
     SigmaClip { sigma_low: f64, sigma_high: f64 },
-    /// Huber-style winsorized sigma clip (unchanged from the legacy master
-    /// recipe): a winsorized location/scale estimate, then reject original
-    /// samples outside [m − sigma_low·s, m + sigma_high·s].
+    /// Huber-style winsorized sigma clip, the reference loop (math reference
+    /// §3.4, ruling R-M4c-3): a winsorized location/scale estimate from the
+    /// median and the MAD, then reject original samples outside
+    /// [m − sigma_low·s, m + sigma_high·s], repeated until stable. Not the
+    /// pre-M4c fixed point — see [`reject_winsorized`].
     WinsorizedSigma { sigma_low: f64, sigma_high: f64 },
-    /// Least-squares line fit over (rank, value); reject samples whose
-    /// residual falls outside [−sigma_low·d, +sigma_high·d] where d is the
-    /// mean absolute deviation of the residuals; refit and repeat until
-    /// stable. PI-recommended for larger sets with drifting illumination.
+    /// Minimum-absolute-deviation ("robust") line fit over (rank, value);
+    /// reject samples whose residual falls outside [−sigma_low·d,
+    /// +sigma_high·d] where d is [`LINEAR_FIT_SIGMA_SCALE`] times twice the
+    /// mean absolute deviation of the residuals from that line; refit and
+    /// repeat until stable. The reference's recommended choice for larger
+    /// sets with drifting illumination.
     LinearFitClip { sigma_low: f64, sigma_high: f64 },
+    /// Min/max clipping (math reference §3.4): drop the `low` smallest and
+    /// `high` largest samples outright, no statistics involved. The counts
+    /// are clamped so at least one sample always survives.
+    MinMax { low: usize, high: usize },
+    /// Generalized extreme studentized deviate test (Rosner 1983, math
+    /// reference §3.4): up to `k = clamp(trunc(outliers_fraction·n), 1, n-2)`
+    /// sequential tests of the most extreme studentized residual against the
+    /// critical value `lambda_i` for significance `alpha`, each removing that
+    /// one sample; `low_relaxation` inflates the scale used below the centre,
+    /// so faint samples are rejected less eagerly than bright ones.
+    Esd { outliers_fraction: f64, alpha: f64, low_relaxation: f64 },
+    /// Robust Chauvenet Rejection (Maples et al. 2018, math reference §3.4):
+    /// three phases of decreasing robustness, each rejecting the single most
+    /// extreme sample while the expected number of samples at least that
+    /// extreme, `n·Q(|x - mu|/sigma)`, stays below `limit` (0.5 is
+    /// Chauvenet's criterion).
+    Rcr { limit: f64 },
 }
 
 /// Format a rejection parameter for a describe/label string (spec §4). Integer
@@ -120,43 +169,51 @@ impl Rejection {
             Rejection::LinearFitClip { sigma_low, sigma_high } => {
                 format!("Linear fit clip ({}/{})", fmt_param(sigma_low), fmt_param(sigma_high))
             }
+            Rejection::MinMax { low, high } => format!("Min/max ({low}/{high})"),
+            Rejection::Esd { outliers_fraction, alpha, low_relaxation } => format!(
+                "ESD ({}/{}/{})",
+                fmt_param(outliers_fraction),
+                fmt_param(alpha),
+                fmt_param(low_relaxation)
+            ),
+            Rejection::Rcr { limit } => format!("RCR ({})", fmt_param(limit)),
         }
     }
 }
 
 // ── Numeric helpers ─────────────────────────────────────────────────────────
 
-fn mean_f64(v: &[f32]) -> f64 {
+fn mean_f64<T: Sample>(v: &[T]) -> f64 {
     if v.is_empty() {
         return 0.0;
     }
-    v.iter().map(|&x| x as f64).sum::<f64>() / v.len() as f64
+    v.iter().map(|s| s.value() as f64).sum::<f64>() / v.len() as f64
 }
 
-fn mean(v: &[f32]) -> f32 {
+fn mean<T: Sample>(v: &[T]) -> f32 {
     mean_f64(v) as f32
 }
 
-fn median_sorted(v: &[f32]) -> f32 {
+fn median_sorted<T: Sample>(v: &[T]) -> f32 {
     let n = v.len();
     if n == 0 {
         return 0.0;
     }
     if n % 2 == 1 {
-        v[n / 2]
+        v[n / 2].value()
     } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
+        (v[n / 2 - 1].value() + v[n / 2].value()) / 2.0
     }
 }
 
-fn stddev(v: &[f32], m: f64) -> f64 {
+fn stddev<T: Sample>(v: &[T], m: f64) -> f64 {
     if v.len() < 2 {
         return 0.0;
     }
     let var = v
         .iter()
-        .map(|&x| {
-            let d = x as f64 - m;
+        .map(|s| {
+            let d = s.value() as f64 - m;
             d * d
         })
         .sum::<f64>()
@@ -164,8 +221,11 @@ fn stddev(v: &[f32], m: f64) -> f64 {
     var.sqrt()
 }
 
-fn sort_asc(v: &mut [f32]) {
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+fn sort_asc<T: Sample>(v: &mut [T]) {
+    // Stable by contract: the weighted path's summation order follows this
+    // ordering; sort_unstable_by would permute tied (value, index) pairs and
+    // change the f64 summation order.
+    v.sort_by(|a, b| a.value().partial_cmp(&b.value()).unwrap_or(std::cmp::Ordering::Equal));
 }
 
 // ── Public entry point ──────────────────────────────────────────────────────
@@ -210,9 +270,117 @@ pub fn combine_pixel(values: &mut [f32], recipe: IntegrationRecipe) -> (f32, usi
     (val, n - kept)
 }
 
+// ── Survivor masks ───────────────────────────────────────────────────────────
+
+/// Words a survivor mask needs for `n` frames.
+#[inline]
+pub fn mask_words(n: usize) -> usize {
+    n.div_ceil(64)
+}
+
+#[inline]
+pub fn mask_clear(mask: &mut [u64]) {
+    mask.iter_mut().for_each(|w| *w = 0);
+}
+
+#[inline]
+pub fn mask_set(mask: &mut [u64], i: usize) {
+    mask[i / 64] |= 1u64 << (i % 64);
+}
+
+#[inline]
+pub fn mask_get(mask: &[u64], i: usize) -> bool {
+    mask[i / 64] & (1u64 << (i % 64)) != 0
+}
+
+/// Weighted combination of one pixel column (spec §6.2, math reference §3.2
+/// steps 3, 5, 6).
+///
+/// `work[k] = (rejection-normalized value, frame index)` for every frame
+/// with a usable sample (the caller has already dropped missing and
+/// range-rejected samples); it is reordered in place. `out_values[i]` is
+/// frame `i`'s OUTPUT-normalized value and `weights[i]` its weight, both
+/// indexed by frame — only the indices present in `work` are read. The
+/// rejection runs on `work`; the result is the weighted mean of the
+/// survivors' `out_values` (samples with `out_values == 0` or `weight <= 0`
+/// are skipped, math reference §3.6) or their median (weights ignored).
+/// Every survivor's bit is set in `mask` (the caller clears it first) and
+/// the rejected count is returned. All rejected → the median of every
+/// `out_values` present in `work`, no bit set.
+///
+/// Contracts: `out_values` and `weights` are indexed by the FRAME index that
+/// rides in `work` (`n_frames` entries each — an index beyond them panics);
+/// `mask` holds `mask_words(n_frames)` words — sized by the frame count, not
+/// by `work.len()`, which is the subset with usable samples — and must be
+/// cleared by the caller before every call (a stale bit is a phantom
+/// survivor nothing detects); `scratch` is reused across calls and never
+/// read. A survivor's bit is set whether or not the sample contributed to
+/// the average (a zero-valued or zero-weighted survivor is masked as a
+/// survivor but skipped by the mean) — rejection maps count rejections, not
+/// contributions.
+pub fn combine_pixel_weighted(
+    work: &mut [(f32, u16)],
+    out_values: &[f32],
+    weights: &[f32],
+    recipe: IntegrationRecipe,
+    mask: &mut [u64],
+    scratch: &mut Vec<f32>,
+) -> (f32, usize) {
+    debug_assert_eq!(out_values.len(), weights.len());
+    debug_assert!(work.iter().all(|&(_, i)| (i as usize) < out_values.len()));
+    debug_assert!(
+        mask.iter().all(|&w| w == 0),
+        "combine_pixel_weighted: mask must be cleared per pixel"
+    );
+    let n = work.len();
+    if n == 0 {
+        return (0.0, 0);
+    }
+    let (kept, _sorted) = apply_rejection(work, recipe.rejection);
+    if kept == 0 {
+        scratch.clear();
+        scratch.extend(work.iter().map(|&(_, i)| out_values[i as usize]));
+        sort_asc(scratch);
+        return (median_sorted(scratch), n);
+    }
+    for &(_, i) in &work[..kept] {
+        mask_set(mask, i as usize);
+    }
+    let value = match recipe.combination {
+        Combination::Average => {
+            let mut num = 0.0f64;
+            let mut den = 0.0f64;
+            for &(_, i) in &work[..kept] {
+                let x = out_values[i as usize];
+                let w = weights[i as usize];
+                if x != 0.0 && w > 0.0 {
+                    num += x as f64 * w as f64;
+                    den += w as f64;
+                }
+            }
+            if den > 0.0 {
+                (num / den) as f32
+            } else {
+                // Every survivor was a zero-valued or zero-weighted sample:
+                // the plain mean of the survivors, as the unweighted path.
+                scratch.clear();
+                scratch.extend(work[..kept].iter().map(|&(_, i)| out_values[i as usize]));
+                mean(scratch)
+            }
+        }
+        Combination::Median => {
+            scratch.clear();
+            scratch.extend(work[..kept].iter().map(|&(_, i)| out_values[i as usize]));
+            sort_asc(scratch);
+            median_sorted(scratch)
+        }
+    };
+    (value, n - kept)
+}
+
 /// Runs the chosen rejection algorithm in place, returning
 /// `(surviving_count, prefix_is_sorted_ascending)`.
-fn apply_rejection(values: &mut [f32], rejection: Rejection) -> (usize, bool) {
+fn apply_rejection<T: Sample>(values: &mut [T], rejection: Rejection) -> (usize, bool) {
     let n = values.len();
     match rejection {
         Rejection::None => (n, false),
@@ -226,12 +394,17 @@ fn apply_rejection(values: &mut [f32], rejection: Rejection) -> (usize, bool) {
         Rejection::LinearFitClip { sigma_low, sigma_high } => {
             reject_linear_fit(values, sigma_low, sigma_high)
         }
+        Rejection::MinMax { low, high } => reject_min_max(values, low, high),
+        Rejection::Esd { outliers_fraction, alpha, low_relaxation } => {
+            reject_esd(values, outliers_fraction, alpha, low_relaxation)
+        }
+        Rejection::Rcr { limit } => reject_rcr(values, limit),
     }
 }
 
-// ── Rejection algorithms (in place, allocation-free except winsorized) ──────
+// ── Rejection algorithms (in place, allocation-free) ───────────────────────
 
-fn reject_percentile(values: &mut [f32], low: f64, high: f64) -> (usize, bool) {
+fn reject_percentile<T: Sample>(values: &mut [T], low: f64, high: f64) -> (usize, bool) {
     let n = values.len();
     if n < 3 {
         return (n, false);
@@ -246,7 +419,7 @@ fn reject_percentile(values: &mut [f32], low: f64, high: f64) -> (usize, bool) {
     // sorted (w <= r throughout, so the write never clobbers an unread slot).
     let mut w = 0usize;
     for r in 0..n {
-        let xf = values[r] as f64;
+        let xf = values[r].value() as f64;
         let dev = (xf - m) / m.abs();
         let reject = (dev < 0.0 && -dev > low) || (dev > 0.0 && dev > high);
         if !reject {
@@ -257,7 +430,7 @@ fn reject_percentile(values: &mut [f32], low: f64, high: f64) -> (usize, bool) {
     (w, true)
 }
 
-fn reject_sigma_clip(values: &mut [f32], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
+fn reject_sigma_clip<T: Sample>(values: &mut [T], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
     let n = values.len();
     if n < 3 {
         return (n, false);
@@ -274,7 +447,7 @@ fn reject_sigma_clip(values: &mut [f32], sigma_low: f64, sigma_high: f64) -> (us
         let hi = m + sigma_high * s;
         let mut w = 0usize;
         for r in 0..kept {
-            let xf = values[r] as f64;
+            let xf = values[r].value() as f64;
             if xf >= lo && xf <= hi {
                 values[w] = values[r];
                 w += 1;
@@ -300,116 +473,880 @@ fn reject_sigma_clip(values: &mut [f32], sigma_low: f64, sigma_high: f64) -> (us
     (kept, false)
 }
 
-fn reject_winsorized(values: &mut [f32], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
-    let n = values.len();
-    if n < 3 {
-        return (n, false);
-    }
-    sort_asc(values);
-    // 1) Winsorized estimate of location/scale (Huber-style iteration): clamp
-    //    the working copy at m±1.5σ, recompute, repeat to 0.5% change. This
-    //    block is byte-identical to the legacy `WinsorizedSigmaClip` estimator
-    //    so Average+WinsorizedSigma reproduces the old master exactly.
-    let mut work: Vec<f64> = values.iter().map(|&x| x as f64).collect();
-    let mut m = work.iter().sum::<f64>() / n as f64;
-    let mut s = stddev(values, m);
-    for _ in 0..10 {
-        if s <= f64::EPSILON {
-            break;
-        }
-        let (lo, hi) = (m - 1.5 * s, m + 1.5 * s);
-        for x in work.iter_mut() {
-            *x = x.clamp(lo, hi);
-        }
-        let new_m = work.iter().sum::<f64>() / n as f64;
-        let new_s = 1.134
-            * (work.iter().map(|x| (x - new_m) * (x - new_m)).sum::<f64>() / (n - 1) as f64).sqrt();
-        let converged = (new_s - s).abs() <= 0.005 * s.abs();
-        m = new_m;
-        s = new_s;
-        if converged {
-            break;
-        }
-    }
-    // 2) Keep original samples inside [m − σ_low·s, m + σ_high·s]. Survivors
-    //    stay in the sorted order the summation relied on historically.
-    let (lo, hi) = (m - sigma_low * s, m + sigma_high * s);
-    let mut w = 0usize;
-    for r in 0..n {
-        let xf = values[r] as f64;
-        if xf >= lo && xf <= hi {
-            values[w] = values[r];
-            w += 1;
-        }
-    }
-    (w, true)
+/// Winsorization point: the working copy is clamped at `mu ± 1.5·sigma`
+/// (math reference §3.4).
+const WINSORIZE_CLAMP_SIGMA: f64 = 1.5;
+
+/// First-pass cutoff: a sample beyond `mu ± 5·sigma` is replaced by the
+/// CENTRE rather than by the neighbouring clamp threshold, so a gross
+/// outlier cannot prop the scale up from just outside the band. Later passes
+/// clamp plainly (nothing is left out that far).
+const WINSORIZE_CUTOFF_SIGMA: f64 = 5.0;
+
+/// Normal-distribution correction for the 1.5-sigma Winsorization point:
+/// the standard deviation of a winsorized standard normal is 0.88231, and
+/// `1/0.88231 = 1.1334` (math reference §3.4).
+const WINSORIZE_SCALE_CORRECTION: f64 = 1.134;
+
+/// `1.4826·MAD` is the σ-consistent MAD scale of a normal sample — the
+/// initial scale of the loop (ruling R-M4c-3: a documented deviation from
+/// the reference's `1.1926·Sn`, which is O(n²) per pixel stack. The
+/// first-pass cutoff above makes the start point nearly irrelevant, and the
+/// loop reaches the same fixed point from either one).
+const WINSORIZE_MAD_TO_SIGMA: f64 = 1.4826;
+
+/// Relative change in `sigma` below which the Winsorization loop has
+/// settled (math reference §3.4), honoured from the second pass on.
+const WINSORIZE_CONVERGENCE: f64 = 0.0005;
+
+/// Pass cap for the Winsorization loop (math reference §3.4).
+const WINSORIZE_MAX_PASSES: usize = 20;
+
+thread_local! {
+    // `reject_winsorized`'s working copy of the current survivor values, in
+    // the f32 the samples already are. Cleared and reused per call — this
+    // rejection runs inside the per-pixel band loop, so a fresh `Vec` per
+    // pixel is not acceptable.
+    static WINSORIZE_SCRATCH: RefCell<Vec<f32>> = RefCell::new(Vec::new());
 }
 
-fn reject_linear_fit(values: &mut [f32], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
+/// Median of `v`, which it reorders in place (`select_nth_unstable_by`, so
+/// no sortedness contract on the caller and no second buffer). Even lengths
+/// average the two middle samples, like [`median_sorted_f64`].
+fn median_in_place(v: &mut [f32]) -> f64 {
+    let n = v.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let (low, mid, _) =
+        v.select_nth_unstable_by(n / 2, |a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let upper = *mid as f64;
+    if n % 2 == 1 {
+        upper
+    } else {
+        // Everything left of the pivot is <= it, so the lower middle sample
+        // is the largest of that partition.
+        let lower = low.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+        0.5 * (lower + upper)
+    }
+}
+
+/// Winsorized location and scale of a pixel stack — `(mu_w, sigma_w,
+/// passes)`, math reference §3.4 via ruling R-M4c-3.
+///
+/// Start `mu = median`, `sigma = 1.4826·MAD` about it, then loop: clamp the
+/// working copy to `[mu − 1.5σ, mu + 1.5σ]` — on the FIRST pass a sample
+/// beyond `mu ± 5σ` becomes `mu` instead (an extreme outlier goes to the
+/// centre, not to the neighbouring threshold, and stays there for the rest
+/// of the loop since the working copy is winsorized cumulatively) — then
+/// `mu = mean(v)`, `sigma = 1.134·stddev(v)`; stop once `sigma` moves by
+/// less than 0.05 % and at least two passes have run, or at 20 passes.
+///
+/// **Zero-MAD fallback (ruling R-T2-1), ours and not the reference's.** The
+/// MAD is 0 for any stack whose MAJORITY is tied, not just for identical
+/// samples — and integer-ADU calibration stacks are exactly that shape, so
+/// `15 × 500 ADU + one cosmic ray` would seed `sigma = 0` and switch the
+/// whole rejection off on the DEFAULT master recipe. When the MAD is 0 the
+/// scale is seeded from the sample standard deviation about the median
+/// instead (the retired estimator's contaminated seed, which restores its
+/// answer on exactly these stacks); a stack with a non-zero MAD can never
+/// reach that branch, so nothing else moves. All-identical samples have no
+/// dispersion under either seed and still reject nothing. The reference's
+/// `1.1926·Sn` seed degenerates on the same stacks — this fallback is our
+/// own, not something read out of §3.4.
+///
+/// Allocation-free: `scratch` is the caller's reused buffer, used first for
+/// the two medians and then as the working copy. The working copy is `f32`
+/// where the reference's loop is `f64`; a clamped value's quantization is
+/// ~6e-8 relative, three orders of magnitude below the 5e-4 stop rule, so
+/// it cannot change how many passes the loop takes.
+///
+/// Fewer than three samples, and zero dispersion by either seed, return
+/// `sigma_w = 0` — which the caller reads as "nothing to reject".
+fn winsorized_location_scale<T: Sample>(values: &[T], scratch: &mut Vec<f32>) -> (f64, f64, usize) {
+    let n = values.len();
+    if n == 0 {
+        return (0.0, 0.0, 0);
+    }
+    if n < 3 {
+        // The loop's centre is the median, so the degenerate answer is the
+        // median too — a caller that reads mu without looking at sigma must
+        // not be handed a different statistic than the loop would give it.
+        scratch.clear();
+        scratch.extend(values.iter().map(|s| s.value()));
+        return (median_in_place(&mut scratch[..]), 0.0, 0);
+    }
+    scratch.clear();
+    scratch.extend(values.iter().map(|s| s.value()));
+    let mut mu = median_in_place(&mut scratch[..]);
+    for (dst, src) in scratch.iter_mut().zip(values.iter()) {
+        *dst = (src.value() as f64 - mu).abs() as f32;
+    }
+    let mad = median_in_place(&mut scratch[..]);
+    let mut sigma = if mad > 0.0 {
+        WINSORIZE_MAD_TO_SIGMA * mad
+    } else {
+        // Majority-tied stack: see the fallback note above.
+        stddev(values, mu)
+    };
+    scratch.clear();
+    scratch.extend(values.iter().map(|s| s.value()));
+
+    let mut passes = 0usize;
+    while passes < WINSORIZE_MAX_PASSES {
+        if !(sigma > 0.0) {
+            break; // zero dispersion (or a non-finite scale): nothing to do
+        }
+        passes += 1;
+        let t0 = mu - WINSORIZE_CLAMP_SIGMA * sigma;
+        let t1 = mu + WINSORIZE_CLAMP_SIGMA * sigma;
+        // The cutoff is a first-pass device: after one pass nothing sits
+        // beyond the clamp thresholds any more, let alone beyond 5 sigma.
+        let cutoff = passes == 1;
+        let (c0, c1) = (mu - WINSORIZE_CUTOFF_SIGMA * sigma, mu + WINSORIZE_CUTOFF_SIGMA * sigma);
+        for x in scratch.iter_mut() {
+            let v = *x as f64;
+            if v < t0 {
+                *x = if cutoff && v <= c0 { mu as f32 } else { t0 as f32 };
+            } else if v > t1 {
+                *x = if cutoff && v >= c1 { mu as f32 } else { t1 as f32 };
+            }
+        }
+        let new_mu = mean_f64(&scratch[..]);
+        let new_sigma = WINSORIZE_SCALE_CORRECTION * stddev(&scratch[..], new_mu);
+        let settled = passes >= 2 && (new_sigma - sigma).abs() < WINSORIZE_CONVERGENCE * sigma;
+        mu = new_mu;
+        sigma = new_sigma;
+        if settled {
+            break;
+        }
+    }
+    (mu, sigma, passes)
+}
+
+/// Winsorized sigma clipping (math reference §3.4, ruling R-M4c-3): the
+/// winsorized location/scale of the current survivors, a sigma clip of the
+/// ORIGINAL samples about `(mu_w, sigma_w)`, repeated until nothing more is
+/// rejected.
+///
+/// Before M4c this routine ran ONE clip about a location/scale seeded from
+/// the contaminated mean and standard deviation — byte-identical to the
+/// pre-2026-07-06 `WinsorizedSigmaClip` estimator, deliberately, so that
+/// masters built by older versions could be reproduced. Ruling R-M4c-3
+/// retires that fixed point: the old seed let a gross outlier inflate the
+/// very scale it was supposed to be measured against, because plain clamping
+/// pinned it at `mu + 1.5·sigma` and left it there, while the reference
+/// loop's first-pass cutoff maps it to the centre where it has no leverage.
+/// Measured on 100 draws of N(0.1, 0.002) plus 5 samples at +10 sigma
+/// (`winsorized_location_scale_lands_on_the_reference_fixed_point`), against
+/// each estimator's OWN answer on the clean 100: contamination moves the
+/// retired estimator +8.2 % (0.00185773 → 0.00201002) and the reference loop
+/// −5.3 % (0.00181578 → 0.00172028).
+///
+/// **No fixture fingerprint pin moved.** The Winsorized fixtures in this
+/// module and in `engine.rs` are tolerance- or survivor-set-based, and on
+/// `fixture_stack()` both fixed points reject the same single outlier and
+/// average the same 24 survivors — so the bit-for-bit legacy pin below still
+/// holds, incidentally (it now asserts the estimators DISAGREE as well, so
+/// it cannot quietly become a claim of equivalence). The real move was
+/// measured on 21 calibrated LDN 1272 mono frames at 4.0/3.0: rejected
+/// fraction 0.380 % → 0.963 %, master median −0.024 %, master MAD +0.50 %,
+/// master noise +2.0 %, 6.59 % of the 25.9 M pixels changed. Full numbers in
+/// the M4c Task 2 commit body and spec §6.3.
+fn reject_winsorized<T: Sample>(values: &mut [T], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
     let n = values.len();
     if n < 3 {
         return (n, false);
     }
     sort_asc(values);
     let mut kept = n;
-    for _ in 0..MAX_REJECTION_ITERS {
-        let k = kept;
-        if k < 2 {
-            break;
-        }
-        // Least-squares line y = a + b·i over (rank i, value) for i in 0..k.
-        let kf = k as f64;
-        let (mut sx, mut sy, mut sxx, mut sxy, mut sabs_y) = (0.0, 0.0, 0.0, 0.0, 0.0);
-        for i in 0..k {
-            let x = i as f64;
-            let y = values[i] as f64;
-            sx += x;
-            sy += y;
-            sxx += x * x;
-            sxy += x * y;
-            sabs_y += y.abs();
-        }
-        let denom = kf * sxx - sx * sx;
-        if denom.abs() <= f64::EPSILON {
-            break; // degenerate — can't fit a line
-        }
-        let b = (kf * sxy - sx * sy) / denom;
-        let a = (sy - b * sx) / kf;
-        // Residual dispersion = mean absolute deviation of residuals.
-        let mut abs_sum = 0.0;
-        for i in 0..k {
-            let resid = values[i] as f64 - (a + b * i as f64);
-            abs_sum += resid.abs();
-        }
-        let d = abs_sum / kf;
-        // Scale-relative zero-dispersion guard: on a perfectly (or near-)
-        // linear stack the residuals are floating-point noise, not signal —
-        // treat that as "no rejection" so a clean ramp is never eaten. Real
-        // dispersion (read noise, drift) is orders of magnitude above this.
-        let scale = (sabs_y / kf).max(1.0);
-        if d <= 1e-9 * scale {
-            break;
-        }
-        let lo = -sigma_low * d;
-        let hi = sigma_high * d;
-        let mut w = 0usize;
-        for i in 0..k {
-            let resid = values[i] as f64 - (a + b * i as f64);
-            if resid >= lo && resid <= hi {
-                values[w] = values[i];
-                w += 1;
+    WINSORIZE_SCRATCH.with(|cell| {
+        let scratch = &mut *cell.borrow_mut();
+        for iter in 0..MAX_REJECTION_ITERS {
+            let (m, s, _passes) = winsorized_location_scale(&values[..kept], scratch);
+            if !(s > 0.0) {
+                break; // zero dispersion → no (further) rejection
+            }
+            let (lo, hi) = (m - sigma_low * s, m + sigma_high * s);
+            // Stable compaction: survivors keep the ascending order the
+            // summation relies on (w <= r throughout, so the write never
+            // clobbers an unread slot).
+            let mut w = 0usize;
+            for r in 0..kept {
+                let xf = values[r].value() as f64;
+                if xf >= lo && xf <= hi {
+                    values[w] = values[r];
+                    w += 1;
+                }
+            }
+            if w == kept {
+                break; // converged
+            }
+            if w == 0 {
+                // Nothing survived. On the FIRST iteration no write has
+                // happened yet, so the full stack is intact and
+                // `combine_pixel`'s all-rejected fallback can take its median
+                // (the historical behaviour of this routine). On a later
+                // iteration an earlier compaction has already overwritten the
+                // tail — keep that iteration's intact survivor prefix rather
+                // than fabricating from clobbered memory, exactly as
+                // `reject_sigma_clip` does.
+                if iter == 0 {
+                    kept = 0;
+                }
+                break;
+            }
+            kept = w;
+            if kept < 3 {
+                break; // the winsorized estimate is not defined below 3
             }
         }
-        if w == kept {
-            break; // stable
+    });
+    (kept, true)
+}
+
+/// Dispersion-scale knob for [`Rejection::LinearFitClip`]: the rejection band
+/// half-width is `sigma_low`/`sigma_high` multiples of
+/// `s = LINEAR_FIT_SIGMA_SCALE * 2 * adev` (`adev` = mean absolute deviation
+/// of the residuals from the fitted line — spec §6.3, math reference §3.4).
+/// Empirical, calibrated by the M4a acceptance run (ruling R-M4a-4): with the
+/// least-squares line the M2 acceptance run measured 0.83 %/0.74 % rejected
+/// at the Auto 5.0/3.5 thresholds on the LDN 1272 set, against the reference
+/// implementation's 2.5–2.8 %. Switching to the minimum-absolute-deviation
+/// line (below) closes the whole gap on its own: the M4a acceptance run
+/// (2026-09-11, run 13 on the same set) measured 2.985 % (mono) / 2.733 %
+/// (OSC) rejected at the Auto 5.0/3.5 with this constant at `1.0` — inside
+/// the 2.3–3.3 % target — so `1.0` is the calibrated value, not a
+/// placeholder; a future re-tune is still a one-line diff away.
+pub const LINEAR_FIT_SIGMA_SCALE: f64 = 1.0;
+
+thread_local! {
+    // `reject_linear_fit`'s per-outer-iteration f64 copy of the current
+    // survivor values, and `medfit_line`'s own residual scratch (used to
+    // take the median of `y − b·x` at each trial slope during
+    // bracketing/bisection). Both cleared and reused per call — this
+    // rejection runs inside the per-pixel band loop, so a fresh `Vec` per
+    // pixel is not acceptable.
+    static LINEAR_FIT_VALUE_SCRATCH: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+    static MEDFIT_RESIDUAL_SCRATCH: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+}
+
+#[inline]
+fn robust_sign(x: f64) -> f64 {
+    if x >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
+}
+
+/// Minimum-absolute-deviation line `y = a + b·i` over `values[i]` (math
+/// reference §3.4): the classic median/bisection method. Seeds the search
+/// from `warm_start_b` when given (the caller's previous iteration's
+/// converged slope — fix round 1, ruling R-M4a-16: after the first
+/// iteration the bracket collapses to a handful of evaluations instead of
+/// walking out from the least-squares slope every time) or the
+/// least-squares slope otherwise; the bracket half-width always uses the
+/// least-squares slope standard error `σ_b` of the CURRENT survivors,
+/// regardless of which slope seeded `b1`. Walks the slope that zeroes the
+/// residual-sign functional `f(b) = Σ x_i · sgn(y_i − median(y − b·x) −
+/// b·x_i)` by bracketing a sign change and bisecting to it; the intercept is
+/// the median of the residuals at the converged slope. A single extreme
+/// sample drags a least-squares line toward itself, shrinking its own
+/// residual and starving the whole stack's rejection — the median-based
+/// line does not move for it.
+///
+/// Two fast paths (ruling R-M4a-16, finding 3): `f` is an integer-valued
+/// step function, so an exact root `f(b) == 0.0` is common (measured 2.8 %
+/// of n = 20 stacks) — the widening/bisection would otherwise walk AWAY
+/// from it (its `fb * f1 >= 0.0` tie-break shrinks toward the wrong side of
+/// an exact zero), returning a worse line than the seed. Both the seed and
+/// every bisection evaluation check for this and return immediately when
+/// found. The final answer is the last evaluated bisection point — no
+/// extra `f` evaluation at the converged midpoint.
+///
+/// Never panics on degenerate input: fewer than 2 samples, a zero-dispersion
+/// (perfect-line) fit, or a sign functional that cannot be bracketed within
+/// 32 widenings all fall back to the least-squares line.
+pub(crate) fn medfit_line(values: &[f64], warm_start_b: Option<f64>) -> (f64, f64) {
+    let n = values.len();
+    if n == 0 {
+        return (0.0, 0.0);
+    }
+    if n == 1 {
+        return (values[0], 0.0);
+    }
+    let nf = n as f64;
+    let (mut sx, mut sy, mut sxx, mut sxy) = (0.0, 0.0, 0.0, 0.0);
+    for (i, &y) in values.iter().enumerate() {
+        let x = i as f64;
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        sxy += x * y;
+    }
+    // del = n·Σ(x − x̄)², strictly positive for n >= 2 distinct ranks.
+    let del = nf * sxx - sx * sx;
+    if del.abs() <= f64::EPSILON {
+        return (sy / nf, 0.0); // unreachable for distinct ranks; guard only
+    }
+    let b_ls = (nf * sxy - sx * sy) / del;
+    let a_ls = (sy - b_ls * sx) / nf;
+    let mut chisq = 0.0;
+    for (i, &y) in values.iter().enumerate() {
+        let resid = y - (a_ls + b_ls * i as f64);
+        chisq += resid * resid;
+    }
+    let sigma_b = (chisq / del).sqrt();
+    if !(sigma_b > 0.0) {
+        // Zero residual dispersion (an exact line): the LS line already IS
+        // the robust line, and the bracket below would be degenerate.
+        return (a_ls, b_ls);
+    }
+
+    MEDFIT_RESIDUAL_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        // O(n) selection instead of an O(n log n) sort per bracket
+        // evaluation (ruling R-M4a-16, finding 1) — this is the DEFAULT
+        // rejection path for every n >= 20 stack (`RejectionChoice::Auto`),
+        // ~26 M calls per plane. A single cold `medfit_line` call (no warm
+        // start) evaluates this up to ~14-90 times (widening + bisection);
+        // the warm start (b) below only shrinks evaluation count ACROSS
+        // `reject_linear_fit`'s outer iterations, not within one call.
+        let mut rofunc = |b: f64| -> (f64, f64) {
+            scratch.clear();
+            scratch.extend(values.iter().enumerate().map(|(i, &y)| y - b * i as f64));
+            let m = scratch.len();
+            let cmp = |p: &f64, q: &f64| p.partial_cmp(q).unwrap_or(std::cmp::Ordering::Equal);
+            let a = if m % 2 == 1 {
+                *scratch.select_nth_unstable_by(m / 2, cmp).1
+            } else {
+                let (lo, hi, _) = scratch.select_nth_unstable_by(m / 2, cmp);
+                0.5 * (lo.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + *hi)
+            };
+            let mut sum = 0.0;
+            for (i, &y) in values.iter().enumerate() {
+                let resid = y - (a + b * i as f64);
+                if resid > 0.0 {
+                    sum += i as f64;
+                } else if resid < 0.0 {
+                    sum -= i as f64;
+                }
+            }
+            (sum, a)
+        };
+
+        let mut b1 = warm_start_b.unwrap_or(b_ls);
+        let (mut f1, a1) = rofunc(b1);
+        if f1 == 0.0 {
+            // Exact root at the seed (finding 3): return immediately — any
+            // further widening/bisection would only walk away from it.
+            return (a1, b1);
         }
-        if w == 0 {
-            // See reject_sigma_clip: keep the last valid survivor prefix rather
-            // than let combine_pixel fall back over the corrupted-tail full
-            // stack. kept holds the previous survivors (>= 2, or the initial n).
-            break;
+        let mut b2 = b1 + 3.0 * sigma_b * robust_sign(f1);
+        let (mut f2, _) = rofunc(b2);
+
+        let mut widenings = 0u32;
+        while f1 * f2 > 0.0 && widenings < 32 {
+            b2 = b1 + 2.0 * (b2 - b1);
+            f2 = rofunc(b2).0;
+            widenings += 1;
         }
-        kept = w;
+        if f1 * f2 > 0.0 {
+            // Could not bracket a sign change of f — degenerate residual
+            // landscape; the least-squares line is the least-bad fallback.
+            return (a_ls, b_ls);
+        }
+
+        let tol = 1e-3 * sigma_b;
+        let mut iters = 0u32;
+        // Last evaluated bisection point — returned as-is at the end
+        // instead of paying for one more `rofunc` at the converged midpoint
+        // (finding 1c). Seeded from the seed evaluation so a bracket that
+        // exits the loop on its very first `bb == b1 || bb == b2` guard
+        // (no floating-point room left) still returns a real evaluated
+        // point rather than a fabricated one.
+        let mut last_a = a1;
+        let mut last_b = b1;
+        while (b2 - b1).abs() >= tol && iters < 60 {
+            let bb = 0.5 * (b1 + b2);
+            if bb == b1 || bb == b2 {
+                break; // no floating-point progress left
+            }
+            let (fb, ab) = rofunc(bb);
+            if fb == 0.0 {
+                // Exact root found mid-bisection (finding 3): stop here —
+                // continuing would shrink the interval away from it.
+                return (ab, bb);
+            }
+            last_a = ab;
+            last_b = bb;
+            if fb * f1 >= 0.0 {
+                b1 = bb;
+                f1 = fb;
+            } else {
+                b2 = bb;
+            }
+            iters += 1;
+        }
+        (last_a, last_b)
+    })
+}
+
+fn reject_linear_fit<T: Sample>(values: &mut [T], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
+    let n = values.len();
+    if n < 3 {
+        return (n, false);
+    }
+    sort_asc(values);
+    let mut kept = n;
+    // Warm start (ruling R-M4a-16, finding 1b): after iteration 1 the
+    // survivor set has barely moved, so its converged slope is a much
+    // better bracket seed for the NEXT iteration than walking out from the
+    // least-squares slope again every time — the bracket collapses to a
+    // handful of evaluations instead of a fresh widening/bisection search.
+    // `None` on the first iteration seeds from the least-squares slope, as
+    // before.
+    let mut warm_start_b: Option<f64> = None;
+    LINEAR_FIT_VALUE_SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        for _ in 0..MAX_REJECTION_ITERS {
+            let k = kept;
+            if k < 2 {
+                break;
+            }
+            // Minimum-absolute-deviation line y = a + b·i over (rank i,
+            // value) for i in 0..k — replaces the least-squares line (M4
+            // ruling R-M4a-4): a single extreme sample used to drag the LS
+            // line toward itself, shrinking its own residual and
+            // under-rejecting real stacks (M2 measured 0.83 %/0.74 %
+            // rejected against the reference's 2.5–2.8 % at the same
+            // 5.0/3.5 thresholds). The median-based line does not move for
+            // outliers.
+            let kf = k as f64;
+            scratch.clear();
+            scratch.extend(values[..k].iter().map(|s| s.value() as f64));
+            let (a, b) = medfit_line(&scratch, warm_start_b);
+            warm_start_b = Some(b);
+
+            let mut abs_sum = 0.0;
+            let mut sabs_y = 0.0;
+            for (i, &y) in scratch.iter().enumerate() {
+                let resid = y - (a + b * i as f64);
+                abs_sum += resid.abs();
+                sabs_y += y.abs();
+            }
+            let adev = abs_sum / kf;
+            // Dispersion `s = LINEAR_FIT_SIGMA_SCALE · 2·adev`: doubled so the
+            // thresholds compare with sigma clipping (spec §6.3, math
+            // reference §3.4). The reference's additional slope term
+            // `sqrt(1 + b²)` is still omitted — it is inert on [0, 1] input
+            // and dimensionally wrong on the ADU-scale stacks the master
+            // builder feeds; `LINEAR_FIT_SIGMA_SCALE` is the one knob the
+            // M4a acceptance run may turn instead (see its doc comment).
+            let s = LINEAR_FIT_SIGMA_SCALE * 2.0 * adev;
+            // Scale-relative zero-dispersion guard: on a perfectly (or near-)
+            // linear stack the residuals are floating-point noise, not signal —
+            // treat that as "no rejection" so a clean ramp is never eaten. Real
+            // dispersion (read noise, drift) is orders of magnitude above this.
+            let scale = (sabs_y / kf).max(1.0);
+            if adev <= 1e-9 * scale {
+                break;
+            }
+            let lo = -sigma_low * s;
+            let hi = sigma_high * s;
+            let mut w = 0usize;
+            for i in 0..k {
+                let resid = values[i].value() as f64 - (a + b * i as f64);
+                if resid >= lo && resid <= hi {
+                    values[w] = values[i];
+                    w += 1;
+                }
+            }
+            if w == kept {
+                break; // stable
+            }
+            if w == 0 {
+                // See reject_sigma_clip: keep the last valid survivor prefix rather
+                // than let combine_pixel fall back over the corrupted-tail full
+                // stack. kept holds the previous survivors (>= 2, or the initial n).
+                break;
+            }
+            kept = w;
+        }
+    });
+    (kept, true)
+}
+
+// ── Min/max, generalized ESD and RCR (M4c Task 1, rulings R-M4c-1/2) ───────
+//
+// All three are USER choices: `RejectionChoice::resolve`'s Auto ladder never
+// selects them (ruling R-M4c-1), so no existing master or stack changes
+// because they exist.
+
+/// Median of a value-sorted slice in f64. The f32 `median_sorted` above
+/// rounds the even-length average through f32; the ESD centre must not,
+/// since its residuals are divided by an f64 standard deviation.
+fn median_sorted_f64<T: Sample>(v: &[T]) -> f64 {
+    let n = v.len();
+    if n == 0 {
+        return 0.0;
+    }
+    if n % 2 == 1 {
+        v[n / 2].value() as f64
+    } else {
+        0.5 * (v[n / 2 - 1].value() as f64 + v[n / 2].value() as f64)
+    }
+}
+
+/// Min/max clipping (math reference §3.4): drop the `low` smallest and
+/// `high` largest samples.
+///
+/// The counts are clamped so at least one sample always survives — a
+/// `MinMax { 10, 10 }` on a 20-frame stack keeps one rather than emptying
+/// the stack into `combine_pixel`'s all-rejected median fallback, which
+/// would silently turn "clip the extremes" into "take the median of
+/// everything, extremes included". The low count is honoured first and the
+/// high count absorbs the clamp, so the deterministic survivor of a
+/// fully-saturated request is the sample just above the requested low cut.
+fn reject_min_max<T: Sample>(values: &mut [T], low: usize, high: usize) -> (usize, bool) {
+    let n = values.len();
+    if n == 0 {
+        return (0, false);
+    }
+    let budget = n - 1; // never reject every sample
+    let lo = low.min(budget);
+    let hi = high.min(budget - lo);
+    if lo == 0 && hi == 0 {
+        return (n, false); // nothing to drop, and nothing sorted
+    }
+    sort_asc(values);
+    let kept = n - lo - hi;
+    if lo > 0 {
+        values.copy_within(lo..n - hi, 0);
+    }
+    (kept, true)
+}
+
+/// Generalized ESD (Rosner 1983; math reference §3.4), `n >= 3`.
+///
+/// `k = clamp(trunc(f·n), 1, n-2)` sequential tests. Each one estimates the
+/// centre as a trimmed mean of the current set (`t_l` dropped low, `t_h`
+/// dropped high, the median when that would leave fewer than 3 samples),
+/// takes `s_h = stddev(set; mu)` and `s_l = rho·s_h`, forms the studentized
+/// residual `(x - mu)/s_h` above the centre and `(mu - x)/s_l` below it, and
+/// compares the largest against `lambda_i`. The first `i` whose maximum
+/// residual falls below `lambda_i` IS the outlier count, so the loop stops
+/// there without removing anything more.
+///
+/// The residual grows monotonically away from the centre on each side, so
+/// the sample removed by a test is always one of the two ENDS of the sorted
+/// stack — the surviving set stays the contiguous range `values[lo..hi]`
+/// and the whole routine is allocation-free. Ties go to the high side (the
+/// same convention as RCR's, §3.4).
+///
+/// A degenerate configuration (non-positive outlier fraction, an `alpha`
+/// outside `(0, 1)`) is not a licence to reject: the stack is returned
+/// untouched.
+fn reject_esd<T: Sample>(
+    values: &mut [T],
+    outliers_fraction: f64,
+    alpha: f64,
+    low_relaxation: f64,
+) -> (usize, bool) {
+    let n = values.len();
+    if n < 3 {
+        return (n, false);
+    }
+    if !(outliers_fraction > 0.0) || !(alpha > 0.0) || alpha >= 1.0 {
+        return (n, false);
+    }
+    let f = outliers_fraction;
+    let rho = if low_relaxation > 0.0 { low_relaxation } else { 1.0 };
+    let k = ((f * n as f64).trunc() as usize).clamp(1, n - 2);
+    sort_asc(values);
+    let view: &[T] = values;
+    // One memo lookup per pixel stack for the whole lambda vector (ruling
+    // R-M4c-2). The closure reads the slice and nothing else — it must never
+    // call back into `with_esd_lambdas` (the thread-local is borrowed for
+    // its duration).
+    let (lo, hi) = student_t::with_esd_lambdas(n, alpha, k, |lambdas| {
+        let (mut lo, mut hi) = (0usize, n);
+        for i in 0..k {
+            let set = &view[lo..hi];
+            let m = set.len();
+            if m < 3 {
+                break;
+            }
+            let mf = m as f64;
+            // Trimming counts for the centre estimate: the relaxation
+            // factor trims fewer samples off the low side.
+            let t_h = ((f * mf).trunc() as usize).saturating_sub(i).max(1);
+            let t_l = (((f / rho) * mf).trunc() as usize).saturating_sub(i).max(1);
+            let mu = if t_l + t_h + 2 < m {
+                mean_f64(&set[t_l..m - t_h])
+            } else {
+                median_sorted_f64(set)
+            };
+            let s_h = stddev(set, mu);
+            if !(s_h > 0.0) {
+                break; // zero dispersion: nothing is extreme
+            }
+            let s_l = rho * s_h;
+            let studentized = |x: f64| {
+                if x >= mu {
+                    (x - mu) / s_h
+                } else {
+                    (mu - x) / s_l
+                }
+            };
+            let r_lo = studentized(set[0].value() as f64);
+            let r_hi = studentized(set[m - 1].value() as f64);
+            if r_lo.max(r_hi) < lambdas[i] {
+                break; // this `i` is the outlier count
+            }
+            if r_hi >= r_lo {
+                hi -= 1;
+            } else {
+                lo += 1;
+            }
+        }
+        (lo, hi)
+    });
+    let kept = hi - lo;
+    if lo > 0 {
+        values.copy_within(lo..hi, 0);
+    }
+    (kept, true)
+}
+
+/// Distinct `N` keys [`RCR_HALF_NORMAL_TABLE`] holds before it is dropped
+/// wholesale — the same bound, for the same reason, as the ESD lambda memo.
+const RCR_TABLE_MAX_KEYS: usize = 4096;
+
+thread_local! {
+    /// `reject_rcr`'s sorted absolute deviations from the current centre,
+    /// reused across calls: RCR runs inside the per-pixel band loop, so a
+    /// fresh `Vec` per pixel stack is not acceptable.
+    static RCR_DEVIATION_SCRATCH: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+    /// Half-normal quantile table for the RCR line-fit deviation, keyed by
+    /// the deviation count `N`: the `m = trunc(0.683N + 0.317)` abscissae
+    /// `sqrt(2)·erfinv((i + 1 - 0.317)/N)` and their sum of squares, both
+    /// functions of `N` alone. Same reasoning as the ESD lambda memo
+    /// (ruling R-M4c-2): every pixel stack of a plane walks the same
+    /// handful of `N` values, and each entry costs `m` `erfinv`
+    /// evaluations to build — without the memo the line-fit phase pays
+    /// them per iteration per pixel.
+    static RCR_HALF_NORMAL_TABLE: RefCell<HashMap<usize, (Vec<f64>, f64)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Small-sample correction `F(N) = 1/(1 - 2.9442·N^-1.073)` (math reference
+/// §3.4), capped at 20 where the denominator stops being usefully positive
+/// (`N <= 2`).
+fn rcr_small_sample_factor(n: usize) -> f64 {
+    let d = 1.0 - 2.9442 * (n as f64).powf(-1.073);
+    if d <= 0.05 {
+        20.0
+    } else {
+        1.0 / d
+    }
+}
+
+/// Linear-interpolation quantile of a sorted slice (position `p·(n - 1)`).
+fn rcr_quantile_sorted(sorted: &[f64], p: f64) -> f64 {
+    let n = sorted.len();
+    if n == 0 {
+        return f64::NAN;
+    }
+    let pos = p * (n - 1) as f64;
+    let i = pos.floor() as usize;
+    let frac = pos - i as f64;
+    if i + 1 >= n {
+        sorted[n - 1]
+    } else {
+        sorted[i] + frac * (sorted[i + 1] - sorted[i])
+    }
+}
+
+/// `SampleDeviation = F(N)·quantile_0.683(|x - mu|)` over the sorted
+/// deviations (math reference §3.4).
+fn rcr_sample_deviation(devs_sorted: &[f64]) -> f64 {
+    rcr_small_sample_factor(devs_sorted.len()) * rcr_quantile_sorted(devs_sorted, 0.683)
+}
+
+/// `LineFitDeviation` (math reference §3.4): regress the lowest
+/// `m = trunc(0.683N + 0.317)` sorted deviations against the half-normal
+/// quantiles `sqrt(2)·erfinv((i + 1 - 0.317)/N)` with a line through the
+/// origin and return `F(N)·y(1)`. Below 8 regression points it defers to
+/// [`rcr_sample_deviation`], as does a degenerate abscissa table.
+fn rcr_line_fit_deviation(devs_sorted: &[f64]) -> f64 {
+    let n = devs_sorted.len();
+    let m = (0.683 * n as f64 + 0.317).trunc() as usize;
+    if m < 8 {
+        return rcr_sample_deviation(devs_sorted);
+    }
+    RCR_HALF_NORMAL_TABLE.with(|cell| {
+        let mut table = cell.borrow_mut();
+        if table.len() >= RCR_TABLE_MAX_KEYS && !table.contains_key(&n) {
+            table.clear();
+        }
+        let (xs, sxx) = table.entry(n).or_insert_with(|| {
+            let xs: Vec<f64> = (0..m)
+                .map(|i| {
+                    std::f64::consts::SQRT_2
+                        * student_t::erfinv((i as f64 + 1.0 - 0.317) / n as f64)
+                })
+                .collect();
+            let sxx = xs.iter().map(|x| x * x).sum::<f64>();
+            (xs, sxx)
+        });
+        if !(*sxx > 0.0) {
+            return rcr_sample_deviation(devs_sorted);
+        }
+        let sxy = xs.iter().zip(devs_sorted).map(|(x, y)| x * y).sum::<f64>();
+        rcr_small_sample_factor(n) * (sxy / *sxx)
+    })
+}
+
+/// Upper Gaussian tail `Q(z) = erfc(z/sqrt(2))/2`.
+fn rcr_gauss_tail(z: f64) -> f64 {
+    0.5 * student_t::erfc(z / std::f64::consts::SQRT_2)
+}
+
+/// Sorted-ascending `|x - median|` of a VALUE-SORTED slice, written into
+/// `out`; returns the median. Because the input is value-sorted the
+/// deviations grow monotonically walking outward from the median position on
+/// each side, so a two-pointer merge produces them already sorted in `O(n)`
+/// — no second sort per iteration.
+fn rcr_sorted_deviations<T: Sample>(sorted: &[T], out: &mut Vec<f64>) -> f64 {
+    out.clear();
+    let m = sorted.len();
+    if m == 0 {
+        return f64::NAN;
+    }
+    let med;
+    let (mut l, mut r): (isize, isize);
+    if m % 2 == 1 {
+        let mid = m / 2;
+        med = sorted[mid].value() as f64;
+        out.push(0.0);
+        l = mid as isize - 1;
+        r = mid as isize + 1;
+    } else {
+        let (a, b) = (m / 2 - 1, m / 2);
+        med = 0.5 * (sorted[a].value() as f64 + sorted[b].value() as f64);
+        // The two central deviations are equal by the definition of an
+        // even-length median.
+        let d = (sorted[b].value() as f64 - med).abs();
+        out.push(d);
+        out.push(d);
+        l = a as isize - 1;
+        r = b as isize + 1;
+    }
+    loop {
+        let dl = if l >= 0 {
+            Some((med - sorted[l as usize].value() as f64).abs())
+        } else {
+            None
+        };
+        let dr = if (r as usize) < m {
+            Some((sorted[r as usize].value() as f64 - med).abs())
+        } else {
+            None
+        };
+        match (dl, dr) {
+            (Some(a), Some(b)) => {
+                if a <= b {
+                    out.push(a);
+                    l -= 1;
+                } else {
+                    out.push(b);
+                    r += 1;
+                }
+            }
+            (Some(a), None) => {
+                out.push(a);
+                l -= 1;
+            }
+            (None, Some(b)) => {
+                out.push(b);
+                r += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    med
+}
+
+/// Robust Chauvenet Rejection (Maples et al. 2018; math reference §3.4),
+/// `n >= 3`.
+///
+/// Three phases of decreasing robustness — (0) median + line-fit deviation,
+/// (1) median + sample deviation, (2) mean + standard deviation — each
+/// iterated to convergence: while the smaller of `n·Q((mu - x_min)/sigma)`
+/// and `n·Q((x_max - mu)/sigma)` is below `limit`, that one extreme is
+/// rejected (ties go to the high side); otherwise the phase ends.
+/// `limit = 0.5` is Chauvenet's criterion.
+///
+/// Same structural property as ESD above: only single extremes leave, so
+/// the survivors stay the contiguous sorted range `values[lo..hi]` and the
+/// routine allocates nothing per pixel (the deviation buffer and the
+/// half-normal abscissae are thread-local and reused).
+///
+/// This is a second implementation of the same algorithm as
+/// `stacking::robust::rcr`, which cannot be reached from here (`stacking` is
+/// gated behind `render + solver`, `integration` is not). A cross-check test
+/// in `stacking::robust` holds the two to the same answers.
+fn reject_rcr<T: Sample>(values: &mut [T], limit: f64) -> (usize, bool) {
+    let n = values.len();
+    if n < 3 {
+        return (n, false);
+    }
+    sort_asc(values);
+    let (lo, hi) = RCR_DEVIATION_SCRATCH.with(|cell| {
+        let mut devs = cell.borrow_mut();
+        let (mut lo, mut hi) = (0usize, n);
+        for phase in 0..3 {
+            loop {
+                let set = &values[lo..hi];
+                let m = set.len();
+                if m < 3 {
+                    break;
+                }
+                let (mu, sigma) = if phase < 2 {
+                    let med = rcr_sorted_deviations(set, &mut devs);
+                    let s = if phase == 0 {
+                        rcr_line_fit_deviation(&devs)
+                    } else {
+                        rcr_sample_deviation(&devs)
+                    };
+                    (med, s)
+                } else {
+                    let mu = mean_f64(set);
+                    (mu, stddev(set, mu))
+                };
+                if !(sigma > 0.0) {
+                    break; // zero dispersion: nothing is extreme
+                }
+                let mf = m as f64;
+                let d_lo = mf * rcr_gauss_tail((mu - set[0].value() as f64) / sigma);
+                let d_hi = mf * rcr_gauss_tail((set[m - 1].value() as f64 - mu) / sigma);
+                if d_lo.min(d_hi) >= limit {
+                    break; // the phase has converged
+                }
+                if d_hi <= d_lo {
+                    hi -= 1;
+                } else {
+                    lo += 1;
+                }
+            }
+        }
+        (lo, hi)
+    });
+    let kept = hi - lo;
+    if lo > 0 {
+        values.copy_within(lo..hi, 0);
     }
     (kept, true)
 }
@@ -486,6 +1423,9 @@ mod tests {
             Rejection::SigmaClip { sigma_low: 4.0, sigma_high: 3.0 },
             Rejection::WinsorizedSigma { sigma_low: 3.0, sigma_high: 3.0 },
             Rejection::LinearFitClip { sigma_low: 5.0, sigma_high: 2.5 },
+            Rejection::MinMax { low: 1, high: 1 },
+            Rejection::Esd { outliers_fraction: 0.3, alpha: 0.05, low_relaxation: 1.5 },
+            Rejection::Rcr { limit: 0.5 },
         ];
         for rej in rejections {
             for recipe in [IntegrationRecipe::average(rej), IntegrationRecipe::median(rej)] {
@@ -623,14 +1563,27 @@ mod tests {
 
     #[test]
     fn linear_fit_rejects_spike() {
-        let mut ramp: Vec<f32> = (0..20).map(|i| 100.0 + 5.0 * i as f32).collect();
-        ramp[10] = 100_000.0; // one gross spike in the middle of the ramp
+        // Native [0,1] scale (what a calibrated light stack carries): 20 samples
+        // around 0.20, ±0.002 jitter on a 1e-4/rank ramp, one hot frame at +0.30.
+        // Dispersion doubled 2026-09-09: measured z 7.294 (old adev) → 3.647
+        // (2·adev), still over sigma_high 3.5. The old fixture (100 + 5·i ramp,
+        // spike 100_000) had a value/rank slope no real stack can produce; it is
+        // retired, not re-thresholded.
+        //
+        // Medfit line (M4a Task 3, ruling R-M4a-4): measured z ≈ 9.759
+        // (a=0.197581, b=0.00037280, adev=0.0152855) on the first-iteration
+        // fit — well clear of sigma_high 3.5, more decisively than the LS
+        // line's 3.647.
+        let mut ramp: Vec<f32> = (0..20)
+            .map(|i| 0.20 + 0.0001 * i as f32 + if i % 2 == 0 { 0.002 } else { -0.002 })
+            .collect();
+        ramp[10] += 0.30;
         let (v, rej) = combine_pixel(
             &mut ramp,
             IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 5.0, sigma_high: 3.5 }),
         );
         assert!(rej >= 1, "spike must be rejected");
-        assert!(v < 1000.0, "combined value should not be dragged up by the spike, got {v}");
+        assert!(v < 0.21, "combined value should not be dragged up by the spike, got {v}");
     }
 
     #[test]
@@ -649,20 +1602,370 @@ mod tests {
     #[test]
     fn linear_fit_all_rejected_uses_intact_stack_not_corruption() {
         // Same symmetric reproduction stack as the sigma-clip regression. The
-        // least-squares line over this ramp-like stack leaves every residual
-        // outside the tight ±0.5σ band, so iteration 1 rejects ALL 12 at once
-        // (w=0) BEFORE any in-place compaction — the array is never corrupted
-        // here. With the w==0 guard, kept stays at the initial 12 and the
-        // survivors (== the intact stack) average to 5.0. (Pre-fix, kept fell to
-        // 0 and the fallback median of the still-intact stack was also 5.0 —
-        // value unchanged, now sourced from a real combine over survivors.)
+        // least-squares line over this ramp-like stack used to leave every
+        // residual outside the tight rejection band, so iteration 1 rejected
+        // ALL 12 at once (w=0) BEFORE any in-place compaction — the array is
+        // never corrupted here. With the w==0 guard, kept stays at the
+        // initial 12 and the survivors (== the intact stack) average to 5.0.
+        //
+        // Medfit line (M4a Task 3, ruling R-M4a-4): the robust line for this
+        // exact symmetric stack is a ≈ 0.0001431, b ≈ 0.9090649 — a fit that
+        // (unlike least squares) runs almost exactly THROUGH the two extreme
+        // ranks (measured residual ≈ 1.431e-4 at ranks 0 and 11, versus
+        // ≈ 0.3636–1.8183 at every other rank), because the L1 line for this
+        // perfectly symmetric data hinges on those two points. adev is
+        // unchanged by the new fit (≈ 0.81823, s = 2·adev ≈ 1.63645) but the
+        // old ±0.15σ band (well above the old ≈0.2807 boundary) now excludes
+        // only 10 of 12 samples — the near-zero-residual extremes survive
+        // (kept=2, {0.0, 10.0}, which still average to 5.0 by symmetry: the
+        // guard is not what makes this one pass any more). To reproduce the
+        // FIRST-iteration all-reject case this test exists for, the band
+        // must be tighter than the ≈1.431e-4 extreme-rank residual: measured
+        // boundary sigma ≈ 8.744e-5; 1e-5 keeps a comfortable margin below
+        // it and rejects all 12 on iteration 1, same as before the fit
+        // changed. This 1e-5 σ is an artefact of the L1 line hinging on the
+        // two extreme ranks of this particular symmetric fixture, not a
+        // general property of the routine (fix round 1 review, ruling
+        // R-M4a-16).
         let mut stack = vec![0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 6.0, 6.0, 6.0, 10.0, 10.0, 10.0];
         let (v, rej) = combine_pixel(
             &mut stack,
-            IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 0.5, sigma_high: 0.5 }),
+            IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 1e-5, sigma_high: 1e-5 }),
         );
         assert_eq!(v, 5.0, "intact-stack combine, no corruption possible");
         assert_eq!(rej, 0, "guard keeps the full stack when iter 1 rejects everything");
+    }
+
+    #[test]
+    fn linear_fit_dispersion_is_twice_adev() {
+        // A perfect ramp of slope 0.01 per rank plus one spike. With the old
+        // dispersion (adev alone) a residual ~4.6x adev is rejected at
+        // thresholds 3.0; with s = 2·adev the SAME residual is only ~2.3x the
+        // (now doubled) dispersion, so it survives; a bigger spike (~7.3x old
+        // adev, ~3.6x new dispersion) is still rejected.
+        //
+        // Dispersion doubled 2026-09-09: raised from the original brief's
+        // spike of +0.009 (case A) / +0.05 more (case B) — measured against
+        // the routine's actual sorted-rank fit, that residual never exceeded
+        // ~1.4x adev even under the OLD dispersion, so neither case changed
+        // behavior. Case A's spike raised +0.009 -> +0.13, case B's
+        // additional spike raised +0.05 -> +0.5 (both still relative to the
+        // LS-line era, where the measured z was ≈4.605 / ≈2.302 for case A
+        // old/new and ≈7.277 / ≈3.638 for case B old/new dispersion).
+        //
+        // Medfit line (M4a Task 3, ruling R-M4a-4): the robust fit changes
+        // both the line AND adev on this fixture (its slope is no longer
+        // pinned to the LS value, unlike the near-degenerate stack above) —
+        // measured z ≈ 2.679 for case A (a=0.496476, b=0.010947,
+        // adev=0.0055106) and z ≈ 8.683 for case B (a=0.496908,
+        // b=0.010899, adev=0.0305202). Both land on the SAME side of the
+        // 3.0 threshold as the least-squares line did (A survives, B is
+        // rejected), so the assertions are unchanged, but the z values that
+        // make them true are not — a coincidence of this fixture's fitted
+        // slope being tiny either way, not a general property of the fit.
+        let mut ramp: Vec<f32> = (0..20).map(|j| 0.5 + 0.01 * j as f32).collect();
+        // deviations: ±0.004 alternating, plus the case-A spike below.
+        for (j, v) in ramp.iter_mut().enumerate() {
+            *v += if j % 2 == 0 { 0.004 } else { -0.004 };
+        }
+        ramp[10] += 0.13;
+        let mut a = ramp.clone();
+        let (_, rejected) = combine_pixel(
+            &mut a,
+            IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 3.0, sigma_high: 3.0 }),
+        );
+        assert_eq!(rejected, 0, "a ~2.68-dispersion deviation survives at 3.0 under the robust line");
+        let mut b = ramp.clone();
+        b[10] += 0.5; // ~8.68x the robust-line dispersion — still rejected
+        let (_, rejected) = combine_pixel(
+            &mut b,
+            IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 3.0, sigma_high: 3.0 }),
+        );
+        assert_eq!(rejected, 1);
+    }
+
+    #[test]
+    fn linear_fit_rejects_a_cosmic_ray_on_an_adu_scale_dark_column() {
+        // A 20-frame dark column in native ADU: pedestal 500, read noise ±5
+        // alternating, one +400 ADU cosmic ray. Under a slope-scaled dispersion
+        // the sorted-rank slope (≈ 6 ADU/rank) inflated s six-fold and nothing
+        // was rejected; with s = 2·adev the ray goes at 5.0/3.5 (measured z
+        // ≈ 3.658, over sigma_high 3.5).
+        //
+        // Medfit line (M4a Task 3, ruling R-M4a-4): measured z ≈ 9.659
+        // (a=494.971, b=0.908741, adev=19.9226) on the first-iteration fit —
+        // well clear of sigma_high 3.5, more decisively than the LS line's
+        // 3.658.
+        let mut col: Vec<f32> = (0..20)
+            .map(|i| 500.0 + if i % 2 == 0 { 5.0 } else { -5.0 } + 0.3 * i as f32)
+            .collect();
+        col[7] += 400.0;
+        let (v, rej) = combine_pixel(
+            &mut col,
+            IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 5.0, sigma_high: 3.5 }),
+        );
+        assert_eq!(rej, 1, "the cosmic ray");
+        assert!(v < 510.0, "{v}");
+    }
+
+    // ── medfit_line (M4a Task 3, ruling R-M4a-4) ────────────────────────────
+
+    /// Tiny deterministic PRNG for the contaminated-stack fixture below
+    /// (mirrors `geometry::ransac::SplitMix64`; no `rand` crate dependency).
+    struct SplitMix64(u64);
+    impl SplitMix64 {
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        fn next_f64(&mut self) -> f64 {
+            (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+        }
+    }
+
+    /// One N(0,1) draw off `rng` via the Box–Muller transform.
+    fn next_gaussian(rng: &mut SplitMix64) -> f64 {
+        let u1 = rng.next_f64().max(1e-12);
+        let u2 = rng.next_f64();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    }
+
+    /// `n` samples of N(`mean`, `sigma`), seeded for reproducibility.
+    fn fixture_gaussian_stack(n: usize, mean: f64, sigma: f64, seed: u64) -> Vec<f32> {
+        let mut rng = SplitMix64(seed);
+        (0..n).map(|_| (mean + sigma * next_gaussian(&mut rng)) as f32).collect()
+    }
+
+    /// A single, explicitly-placed sample (no jitter) — used to drop known
+    /// outlier values into an otherwise-random fixture.
+    fn sample_from(value: f32) -> f32 {
+        value
+    }
+
+    #[test]
+    fn medfit_line_ignores_a_single_extreme_outlier_that_drags_least_squares() {
+        // a clean ramp 10 + 0.5·i for i in 0..40, plus values[39] = 1000
+        let mut v: Vec<f64> = (0..40).map(|i| 10.0 + 0.5 * i as f64).collect();
+        v[39] = 1000.0;
+        let (a, b) = medfit_line(&v, None);
+        assert!((a - 10.0).abs() < 0.05 && (b - 0.5).abs() < 0.01, "medfit ({a}, {b}) must recover the ramp");
+        // least squares on the same data does not: its slope is > 1.0 — the point of the test
+    }
+
+    #[test]
+    fn medfit_line_returns_the_seed_when_the_seed_is_an_exact_root() {
+        // A palindrome (values[i] == values[19-i]) makes the least-squares
+        // slope exactly 0 by symmetry, and with equally many pairs above and
+        // below the median, f(b_ls) == 0 exactly too — `f` is an
+        // integer-valued step function, so this is common (fix round 1
+        // review, ruling R-M4a-16, finding 3: measured 2.8 % of n = 20
+        // stacks). Without the fix, the bisection's `fb * f1 >= 0.0`
+        // tie-break at an exact zero shrinks the bracket toward the WRONG
+        // side of the root, returning a worse line than the seed.
+        let half = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let values: Vec<f64> = half.iter().chain(half.iter().rev()).copied().collect();
+
+        // Verify the premise directly (reproduce medfit_line's own f(b_ls)):
+        // the seed IS an exact root on this fixture.
+        let n = values.len() as f64;
+        let (mut sx, mut sy, mut sxx, mut sxy) = (0.0, 0.0, 0.0, 0.0);
+        for (i, &y) in values.iter().enumerate() {
+            let x = i as f64;
+            sx += x;
+            sy += y;
+            sxx += x * x;
+            sxy += x * y;
+        }
+        let del = n * sxx - sx * sx;
+        let b_ls = (n * sxy - sx * sy) / del;
+        let a_ls = (sy - b_ls * sx) / n;
+        let mut resid: Vec<f64> =
+            values.iter().enumerate().map(|(i, &y)| y - b_ls * i as f64).collect();
+        resid.sort_by(|p, q| p.partial_cmp(q).unwrap());
+        let m = resid.len();
+        let med = if m % 2 == 1 { resid[m / 2] } else { 0.5 * (resid[m / 2 - 1] + resid[m / 2]) };
+        let mut f = 0.0;
+        for (i, &y) in values.iter().enumerate() {
+            let r = y - (med + b_ls * i as f64);
+            if r > 0.0 {
+                f += i as f64;
+            } else if r < 0.0 {
+                f -= i as f64;
+            }
+        }
+        assert_eq!(f, 0.0, "premise: f(b_ls) must be an exact root on this fixture");
+        assert_eq!(med, a_ls, "sanity: median residual equals the LS intercept on this symmetric fixture");
+
+        let (a, b) = medfit_line(&values, None);
+        assert_eq!((a, b), (a_ls, b_ls), "an exact root at the seed must be returned as-is, not walked away from");
+    }
+
+    /// Copied verbatim (module-level helpers substituted, generic `T: Sample`
+    /// specialized to `f32`) from the pre-Task-3 `reject_linear_fit`
+    /// (`git show d6361615:crates/athenaeum-core/src/integration/combine.rs`)
+    /// — the least-squares routine this task replaced. Test-only: proves the
+    /// discrimination in the test below is real, not assumed (fix round 1
+    /// review, ruling R-M4a-16, finding 2).
+    fn old_reject_linear_fit_ls(values: &mut [f32], sigma_low: f64, sigma_high: f64) -> (usize, bool) {
+        let n = values.len();
+        if n < 3 {
+            return (n, false);
+        }
+        sort_asc(values);
+        let mut kept = n;
+        for _ in 0..MAX_REJECTION_ITERS {
+            let k = kept;
+            if k < 2 {
+                break;
+            }
+            let kf = k as f64;
+            let (mut sx, mut sy, mut sxx, mut sxy, mut sabs_y) = (0.0, 0.0, 0.0, 0.0, 0.0);
+            for i in 0..k {
+                let x = i as f64;
+                let y = values[i] as f64;
+                sx += x;
+                sy += y;
+                sxx += x * x;
+                sxy += x * y;
+                sabs_y += y.abs();
+            }
+            let denom = kf * sxx - sx * sx;
+            if denom.abs() <= f64::EPSILON {
+                break;
+            }
+            let b = (kf * sxy - sx * sy) / denom;
+            let a = (sy - b * sx) / kf;
+            let mut abs_sum = 0.0;
+            for i in 0..k {
+                let resid = values[i] as f64 - (a + b * i as f64);
+                abs_sum += resid.abs();
+            }
+            let adev = abs_sum / kf;
+            let s = 2.0 * adev;
+            let scale = (sabs_y / kf).max(1.0);
+            if adev <= 1e-9 * scale {
+                break;
+            }
+            let lo = -sigma_low * s;
+            let hi = sigma_high * s;
+            let mut w = 0usize;
+            for i in 0..k {
+                let resid = values[i] as f64 - (a + b * i as f64);
+                if resid >= lo && resid <= hi {
+                    values[w] = values[i];
+                    w += 1;
+                }
+            }
+            if w == kept {
+                break;
+            }
+            if w == 0 {
+                break;
+            }
+            kept = w;
+        }
+        (kept, true)
+    }
+
+    #[test]
+    fn linear_fit_rejection_with_the_robust_line_rejects_the_contaminated_tail_ls_kept() {
+        // 200 samples: N(0.1, 0.002) + 6 high outliers at 0.106..0.136 — INSIDE
+        // the old least-squares line's blind spot (fix round 1 review, ruling
+        // R-M4a-16, finding 2): outliers at 0.13..0.16 sit at 15-28σ, which the
+        // old LS routine already rejects on its own, so that fixture did not
+        // discriminate between the two routines. The lowered tail drags the LS
+        // line toward itself just enough that its own (inflated) dispersion
+        // hides it — pinned below as a red-state assertion, not assumed.
+        let mut tail = fixture_gaussian_stack(200, 0.1, 0.002, 12345);
+        for (k, x) in tail.iter_mut().rev().take(6).enumerate() {
+            *x = sample_from(0.106 + 0.006 * k as f32);
+        }
+
+        let mut old_copy = tail.clone();
+        let (old_kept, _) = old_reject_linear_fit_ls(&mut old_copy, 5.0, 3.5);
+        assert_eq!(
+            old_kept, 195,
+            "red-state pin: the least-squares routine must NOT discriminate this tail"
+        );
+
+        // Green: measured kept == 189 for the new medfit-based routine on
+        // this exact fixture (versus the LS routine's 195 above) — a real
+        // discrimination, not a coincidence of the threshold.
+        let mut vals = tail;
+        let (kept, _) = reject_linear_fit(&mut vals, 5.0, 3.5);
+        assert!(kept <= 194, "all six outliers rejected at 5.0/3.5, kept {kept}");
+    }
+
+    /// The single least-squares line fit `medfit_line` replaces, copied from
+    /// the pre-Task-3 `reject_linear_fit`'s LS block (`git show
+    /// d6361615:crates/athenaeum-core/src/integration/combine.rs`),
+    /// generalized from the per-iteration inline computation to a standalone
+    /// `&[f64] -> (f64, f64)` function for this cost-ratio benchmark (fix
+    /// round 1 review, ruling R-M4a-16, finding 1).
+    fn old_least_squares_line(values: &[f64]) -> (f64, f64) {
+        let k = values.len();
+        let kf = k as f64;
+        let (mut sx, mut sy, mut sxx, mut sxy) = (0.0, 0.0, 0.0, 0.0);
+        for (i, &y) in values.iter().enumerate() {
+            let x = i as f64;
+            sx += x;
+            sy += y;
+            sxx += x * x;
+            sxy += x * y;
+        }
+        let denom = kf * sxx - sx * sx;
+        if denom.abs() <= f64::EPSILON {
+            return (sy / kf, 0.0);
+        }
+        let b = (kf * sxy - sx * sy) / denom;
+        let a = (sy - b * sx) / kf;
+        (a, b)
+    }
+
+    /// Cost of one cold (no warm start) `medfit_line` call relative to one
+    /// `old_least_squares_line` call, at n = 20 (the `RejectionChoice::Auto`
+    /// threshold) and n = 200 (a typical real stack) — ruling R-M4a-16,
+    /// finding 1: the review measured 13-44x against the brief's 5-10x bar
+    /// before `select_nth_unstable_by` replaced the per-bracket sort. Not
+    /// run by default (timing tests are flaky under CI/parallel load) — run
+    /// with `-- --ignored --nocapture` and read the printed ratios.
+    #[test]
+    #[ignore]
+    fn medfit_cost_relative_to_least_squares() {
+        use std::time::Instant;
+        for &n in &[20usize, 200usize] {
+            let mut rng = SplitMix64(0x9E37_79B9 ^ n as u64);
+            // A real per-pixel stack, in the shape `reject_linear_fit`
+            // actually hands `medfit_line`: SORTED ascending (`sort_asc`
+            // runs before every call in production), a baseline plus
+            // per-frame read noise.
+            let mut values: Vec<f64> =
+                (0..n).map(|_| 100.0 + 5.0 * next_gaussian(&mut rng)).collect();
+            values.sort_by(|p, q| p.partial_cmp(q).unwrap());
+
+            let iters = 20_000u32;
+            let t0 = Instant::now();
+            for _ in 0..iters {
+                std::hint::black_box(old_least_squares_line(std::hint::black_box(&values)));
+            }
+            let old_elapsed = t0.elapsed();
+
+            let t1 = Instant::now();
+            for _ in 0..iters {
+                std::hint::black_box(medfit_line(std::hint::black_box(&values), None));
+            }
+            let new_elapsed = t1.elapsed();
+
+            let old_ns = old_elapsed.as_secs_f64() * 1e9 / iters as f64;
+            let new_ns = new_elapsed.as_secs_f64() * 1e9 / iters as f64;
+            eprintln!(
+                "n={n}: old={old_ns:.1} ns/call new={new_ns:.1} ns/call ratio={:.2}x",
+                new_ns / old_ns
+            );
+        }
     }
 
     // ── WinsorizedSigma & PercentileClip carried over ───────────────────────
@@ -710,27 +2013,286 @@ mod tests {
         assert!(v < 10100.0, "{v}");
     }
 
+    // ── Winsorized location/scale (M4c Task 2, ruling R-M4c-3) ──────────────
+
+    /// Ruling R-M4c-3: the Winsorized estimator now follows the reference
+    /// loop — `mu = median`, initial `sigma = 1.4826·MAD`, then 1.5-sigma
+    /// Winsorization with a first-pass cutoff of 5 (a sample beyond
+    /// `mu ± 5·sigma` goes to the CENTRE, not to the neighbouring threshold),
+    /// `sigma = 1.134·stddev(v)`, `mu = mean(v)`, stopping at a 0.05 %
+    /// change in `sigma` after at least two passes.
+    ///
+    /// Measured on the fixture below — 100 draws of N(0.1, 0.002), whose own
+    /// sample scale is 0.00188190 (the draw runs 5.9 % under the nominal
+    /// 0.002, which is ordinary for n = 100: the sampling scatter of a
+    /// sample scale is `1/sqrt(2(n−1))` ≈ 7 %), plus 5 samples planted at
+    /// +10 nominal sigma:
+    ///
+    /// | estimator | stack        | mu         | sigma      | passes |
+    /// | --------- | ------------ | ---------- | ---------- | ------ |
+    /// | reference | contaminated | 0.10017748 | 0.00172028 | 6      |
+    /// | reference | clean        | 0.10015293 | 0.00181578 | 4      |
+    /// | retired   | contaminated | 0.10030463 | 0.00201002 | (≤ 10) |
+    /// | retired   | clean        | 0.10014012 | 0.00185773 | (≤ 10) |
+    ///
+    /// So the pin is NOT "sigma_w ≈ 0.002": neither estimator's fixed point
+    /// is the nominal scale, and on this draw the retired one lands within
+    /// 0.5 % of 0.002 purely by cancellation (its contamination bias of
+    /// +8.2 % against its own clean value cancels the draw's −5.9 %
+    /// deficit). What separates them is how far CONTAMINATION moves each
+    /// estimator from its own clean answer: the reference loop −5.3 %, the
+    /// retired one +8.2 %, and in opposite directions.
+    ///
+    /// The reference loop's downward move is by construction, not by error:
+    /// the 5 contaminating samples are beyond `mu ± 5·sigma`, so the first
+    /// pass maps them to the CENTRE, after which they contribute nothing to
+    /// the winsorized variance while still counting in its `n − 1`
+    /// denominator. The retired estimator instead started from the
+    /// CONTAMINATED mean and standard deviation — 2.4× the true scale here —
+    /// and its plain clamping pinned the outliers at `mu + 1.5·sigma` for
+    /// good, where they propped up the very scale they were supposed to be
+    /// measured against. That is why every Winsorized fingerprint moves in
+    /// this task.
+    ///
+    /// The fixed-point tolerance is 0.1 % rather than exact bits: the
+    /// fixture is generated through `ln`/`cos`, whose last ulp is allowed to
+    /// differ between platforms. It is still three orders of magnitude
+    /// tighter than the 17 % gap to the retired fixed point, so no change of
+    /// start point, cutoff or convergence rule can slip through it.
+    #[test]
+    fn winsorized_location_scale_lands_on_the_reference_fixed_point() {
+        const SEED: u64 = 0xD15_0001;
+        let clean = fixture_gaussian_stack(100, 0.1, 0.002, SEED);
+        let sd_clean = stddev(&clean[..], mean_f64(&clean[..]));
+        assert!(
+            (sd_clean - 0.001_881_90).abs() < 1e-6,
+            "the fixture's own scale is part of the pin: {sd_clean}"
+        );
+
+        let mut contaminated = clean.clone();
+        for _ in 0..5 {
+            contaminated.push(sample_from(0.12)); // +10 nominal sigma
+        }
+        let mut scratch: Vec<f32> = Vec::new();
+        let (mu, sigma, passes) = winsorized_location_scale(&contaminated[..], &mut scratch);
+        let (mu_clean, sigma_clean, passes_clean) =
+            winsorized_location_scale(&clean[..], &mut scratch);
+
+        assert!(
+            (mu - 0.1).abs() < 0.02 * 0.1,
+            "mu_w {mu} must land within 2 % of 0.1 (contamination moved it by \
+             {} of the clean answer {mu_clean})",
+            (mu - mu_clean).abs() / mu_clean
+        );
+        assert!(
+            (sigma - 0.001_720_28).abs() < 1e-3 * 0.001_720_28,
+            "the contaminated fixed point moved: sigma_w {sigma}"
+        );
+        assert!(
+            (sigma_clean - 0.001_815_78).abs() < 1e-3 * 0.001_815_78,
+            "the clean fixed point moved: sigma_w {sigma_clean}"
+        );
+        assert!(
+            (2..=6).contains(&passes) && (2..=6).contains(&passes_clean),
+            "the loop must settle in 2..=6 passes, took {passes} / {passes_clean}"
+        );
+
+        // The retired estimator's fixed point on the SAME fixtures, so the
+        // move every Winsorized fingerprint made is documented, not
+        // discovered. Its (m, s) is order-dependent through the f64
+        // summation, so it gets the sorted stacks it always got.
+        let mut sorted_contaminated = contaminated.clone();
+        sort_asc(&mut sorted_contaminated);
+        let mut sorted_clean = clean.clone();
+        sort_asc(&mut sorted_clean);
+        let (_, old_sigma) = legacy_winsorized_location_scale(&sorted_contaminated);
+        let (_, old_sigma_clean) = legacy_winsorized_location_scale(&sorted_clean);
+        assert!(
+            (old_sigma - 0.002_010_02).abs() < 1e-3 * 0.002_010_02,
+            "the retired fixed point is recorded, not asserted into existence: {old_sigma}"
+        );
+        assert!(
+            (sigma - sigma_clean).abs() < (old_sigma - old_sigma_clean).abs(),
+            "contamination must move the reference loop LESS than it moved the retired \
+             estimator: {} vs {}",
+            (sigma - sigma_clean).abs(),
+            (old_sigma - old_sigma_clean).abs()
+        );
+        assert!(
+            sigma < sigma_clean && old_sigma > old_sigma_clean,
+            "the reference loop errs low under contamination ({sigma} vs {sigma_clean}), the \
+             retired estimator errs high ({old_sigma} vs {old_sigma_clean}) — the whole point \
+             of the centre-mapping cutoff"
+        );
+
+        // All five planted outliers are rejected at 4.0/3.0, and the clean
+        // stack keeps (nearly) everything.
+        let mut work = planted_stack(100, 0.1, 0.002, SEED, &[0.12; 5]);
+        let (kept, sorted_prefix) = reject_winsorized(&mut work, 4.0, 3.0);
+        assert!(sorted_prefix, "the survivor prefix is left ascending");
+        let kept_ids = survivors(&work, kept);
+        for id in 100u16..105 {
+            assert!(!kept_ids.contains(&id), "planted outlier {id} survived");
+        }
+        assert!(kept >= 97, "kept {kept} of 105 — the clean bulk must survive");
+
+        let mut pure = planted_stack(100, 0.1, 0.002, SEED, &[]);
+        let (kept_pure, _) = reject_winsorized(&mut pure, 4.0, 3.0);
+        assert!(kept_pure >= 98, "a pure Gaussian may lose at most 2: kept {kept_pure}");
+    }
+
+    /// Ruling R-T2-1: a stack whose MAJORITY is tied has a zero MAD, which
+    /// would seed the loop with `sigma = 0` and turn the whole rejection off
+    /// — on the DEFAULT master recipe (`resolve_recipe` → Winsorized 3/3 for
+    /// n ≥ 15) and in the Auto ladder's 8–19 band. Integer-ADU calibration
+    /// stacks are exactly that shape, so the two cases below are the ones a
+    /// bias master with a cosmic ray actually hits. The MAD fallback restores
+    /// the retired estimator's answer on them.
+    #[test]
+    fn winsorized_rejects_the_outlier_of_a_majority_tied_stack() {
+        // 15 samples at 500 ADU + one cosmic ray. Without the fallback:
+        // 0 rejected and 781.25 combined (the outlier folded straight into
+        // the master).
+        let mut tied: Vec<f32> = vec![500.0; 15];
+        tied.push(sample_from(5000.0));
+        let (v, rejected) = combine_pixel(
+            &mut tied.clone(),
+            IntegrationRecipe::average(Rejection::WinsorizedSigma {
+                sigma_low: 3.0,
+                sigma_high: 3.0,
+            }),
+        );
+        assert_eq!(rejected, 1, "the cosmic ray must be rejected");
+        assert!((v as f64 - 500.0).abs() < 1e-6, "combined {v}, want 500.0");
+
+        // 9 tied at 500 (a bare majority of 16, so the MAD is still 0), 6
+        // samples spread +-1..3 ADU around them, one cosmic ray. Without the
+        // fallback: 0 rejected and 1031.25 combined.
+        let mut mixed: Vec<f32> = vec![500.0; 9];
+        for d in [1.0f32, -1.0, 2.0, -2.0, 3.0, -3.0] {
+            mixed.push(sample_from(500.0 + d));
+        }
+        mixed.push(sample_from(9000.0));
+        let (v2, rejected2) = combine_pixel(
+            &mut mixed.clone(),
+            IntegrationRecipe::average(Rejection::WinsorizedSigma {
+                sigma_low: 3.0,
+                sigma_high: 3.0,
+            }),
+        );
+        assert_eq!(rejected2, 1, "the cosmic ray must be rejected");
+        assert!(
+            (v2 as f64 - 500.0).abs() < 1e-6,
+            "combined {v2}, want 500.0 (the 15 survivors are symmetric about it)"
+        );
+
+        // All-identical samples still reject nothing: there is no dispersion
+        // to measure, by either seed.
+        let mut flat: Vec<f32> = vec![500.0; 16];
+        let (v3, rejected3) = combine_pixel(
+            &mut flat,
+            IntegrationRecipe::average(Rejection::WinsorizedSigma {
+                sigma_low: 3.0,
+                sigma_high: 3.0,
+            }),
+        );
+        assert_eq!(rejected3, 0);
+        assert_eq!(v3, 500.0);
+    }
+
+    /// The control for the fallback above: a stack with a NON-zero MAD must
+    /// be untouched by it. The two values are the ones `combine_pixel`
+    /// returned BEFORE the fallback was added (commit 92bf2482) and after —
+    /// identical, because the fallback is reachable only when the MAD is
+    /// exactly 0.
+    #[test]
+    fn winsorized_mad_fallback_cannot_touch_a_non_degenerate_stack() {
+        let clean = fixture_gaussian_stack(100, 0.1, 0.002, 0xD15_0001);
+        let mut contaminated = clean.clone();
+        for _ in 0..5 {
+            contaminated.push(sample_from(0.12));
+        }
+        // The premise: this fixture's MAD is nowhere near zero.
+        let mut devs: Vec<f32> = contaminated.iter().map(|&x| (x - 0.1).abs()).collect();
+        let mad = median_in_place(&mut devs[..]);
+        assert!(mad > 1e-4, "the control fixture must have a real MAD: {mad}");
+
+        let (v, rejected) = combine_pixel(
+            &mut contaminated.clone(),
+            IntegrationRecipe::average(Rejection::WinsorizedSigma {
+                sigma_low: 4.0,
+                sigma_high: 3.0,
+            }),
+        );
+        assert_eq!(rejected, 6, "5 planted outliers + 1 clean tail sample");
+        // 1e-7 rather than exact bits for the same reason as the fixed-point
+        // pin: the fixture is generated through `ln`/`cos`. It is still four
+        // orders of magnitude tighter than any change of seed could be.
+        assert!(
+            (v as f64 - 0.100_086_555).abs() < 1e-7,
+            "the non-degenerate answer must not move: {v}"
+        );
+    }
+
+    /// The all-rejected fallback survives the loop (it used to be reachable
+    /// from a single pass). Zero thresholds leave the band `[mu_w, mu_w]`, so
+    /// the FIRST iteration rejects everything before any survivor has been
+    /// written — the full stack is still intact and `combine_pixel` answers
+    /// with its median, the historical behaviour. (The late-iteration branch
+    /// of the same guard is unreachable by construction here: once the
+    /// median/MAD start is used, a scale small enough to empty a stack whose
+    /// own median exists needs a threshold this degenerate, and that empties
+    /// it on the first iteration. It mirrors `reject_sigma_clip`'s guard,
+    /// which has its own pin.)
+    #[test]
+    fn winsorized_all_rejected_keeps_the_intact_stack_for_the_median() {
+        let base = fixture_gaussian_stack(21, 100.0, 2.0, 0xD15_0002);
+        let mut sorted = base.clone();
+        sort_asc(&mut sorted);
+        let expected = median_sorted(&sorted);
+        let (v, rejected) = combine_pixel(
+            &mut base.clone(),
+            IntegrationRecipe::average(Rejection::WinsorizedSigma {
+                sigma_low: 0.0,
+                sigma_high: 0.0,
+            }),
+        );
+        assert_eq!(rejected, 21, "the whole stack is rejected");
+        assert_eq!(
+            v.to_bits(),
+            expected.to_bits(),
+            "the fallback must be the median of the INTACT stack: {v} vs {expected}"
+        );
+    }
+
     // ── Legacy equivalence, bit-for-bit (spec §5) ───────────────────────────
     //
     // The old flat-`CombineMethod` implementations, replicated verbatim as a
-    // recorded reference. Average+None must equal old `Mean` and
-    // Average+WinsorizedSigma must equal old `WinsorizedSigmaClip` on the same
-    // fixture stack, to the bit.
+    // recorded reference. Average+None must equal old `Mean` on the fixture
+    // stack, to the bit.
+    //
+    // Average+WinsorizedSigma still matches old `WinsorizedSigmaClip` on that
+    // same fixture, but INCIDENTALLY, not because the estimators agree: ruling
+    // R-M4c-3 moved the winsorized fixed point (see the pin above), and on
+    // this fixture both fixed points reject exactly the one planted outlier,
+    // so both average the same 24 survivors. The test below asserts the
+    // survivors AND asserts that the two estimators disagree, so it can never
+    // quietly turn back into a claim of estimator equivalence.
 
     fn legacy_mean(values: &[f32]) -> f32 {
         (values.iter().map(|&x| x as f64).sum::<f64>() / values.len() as f64) as f32
     }
 
-    fn legacy_winsorized(values: &[f32], sigma_low: f64, sigma_high: f64) -> (f32, usize) {
-        let n = values.len();
-        if n < 3 {
-            return (legacy_mean(values), 0);
-        }
-        let mut sorted = values.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    /// The retired estimator's location/scale, lifted verbatim out of
+    /// `legacy_winsorized` below (same f64 operations in the same order, so
+    /// that function's recorded arithmetic is unchanged): the CONTAMINATED
+    /// mean and standard deviation as the start point, plain clamping with no
+    /// cutoff, a 0.5 % convergence threshold and a 10-pass cap.
+    fn legacy_winsorized_location_scale(sorted: &[f32]) -> (f64, f64) {
+        let n = sorted.len();
+        let mut m = sorted.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
+        let mut s = stddev(sorted, m);
         let mut work: Vec<f64> = sorted.iter().map(|&x| x as f64).collect();
-        let mut m = work.iter().sum::<f64>() / n as f64;
-        let mut s = stddev(&sorted, m);
         for _ in 0..10 {
             if s <= f64::EPSILON {
                 break;
@@ -750,6 +2312,17 @@ mod tests {
                 break;
             }
         }
+        (m, s)
+    }
+
+    fn legacy_winsorized(values: &[f32], sigma_low: f64, sigma_high: f64) -> (f32, usize) {
+        let n = values.len();
+        if n < 3 {
+            return (legacy_mean(values), 0);
+        }
+        let mut sorted = values.to_vec();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let (m, s) = legacy_winsorized_location_scale(&sorted);
         let (lo, hi) = (m - sigma_low * s, m + sigma_high * s);
         let mut sum = 0.0f64;
         let mut kept = 0usize;
@@ -800,6 +2373,26 @@ mod tests {
             new_v.to_bits(),
             old_v.to_bits(),
             "Average+WinsorizedSigma must equal old WinsorizedSigmaClip bit-for-bit"
+        );
+        // ... and it does so only because both fixed points reject the same
+        // single outlier here. The estimators themselves are NOT the same any
+        // more (ruling R-M4c-3): on this very fixture the retired start point
+        // (the contaminated mean and standard deviation) lands somewhere else
+        // entirely, which is what moves real master fingerprints.
+        let mut sorted = base.clone();
+        sort_asc(&mut sorted);
+        let mut scratch: Vec<f32> = Vec::new();
+        let (new_m, new_s, _) = winsorized_location_scale(&sorted[..], &mut scratch);
+        let (old_m, old_s) = legacy_winsorized_location_scale(&sorted);
+        // Measured: new (1002.0553, 3.99583) vs retired (1002.2742, 4.30444)
+        // — the SCALE is 7.7 % higher on the retired side (the outlier's
+        // leverage), the centres agree to 0.02 % (the outlier barely moves a
+        // mean of clamped values either way). The scale is what decides
+        // survival, so that is what this asserts.
+        assert!(
+            (new_s - old_s).abs() > 0.01 * old_s.abs(),
+            "the two estimators must NOT agree: new ({new_m}, {new_s}) vs retired \
+             ({old_m}, {old_s}) — if they do, this test is no longer pinning what it says"
         );
     }
 
@@ -858,5 +2451,401 @@ mod tests {
 
         // Unparseable → raw passthrough (nothing lost).
         assert_eq!(describe_recipe_json("not json at all"), "not json at all");
+    }
+
+    // ── Weighted combiner (generic Sample) ──────────────────────────────────
+
+    /// SplitMix64, so the pin needs no dependency.
+    fn rng_next(state: &mut u64) -> f64 {
+        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    fn random_stack(state: &mut u64, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|_| {
+                let g = rng_next(state) + rng_next(state) + rng_next(state) - 1.5;
+                let outlier =
+                    if rng_next(state) < 0.05 { 6.0 * (rng_next(state) - 0.5) } else { 0.0 };
+                // Never an exact zero: the weighted path skips zero-valued
+                // samples (missing coverage), the plain mean averages them.
+                (0.2 + 0.01 * g as f32 + outlier as f32).max(1e-4)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn weighted_combiner_with_unit_weights_is_bit_identical_to_combine_pixel() {
+        let recipes = [
+            IntegrationRecipe::average(Rejection::None),
+            IntegrationRecipe::average(Rejection::PercentileClip { low: 0.2, high: 0.1 }),
+            IntegrationRecipe::average(Rejection::SigmaClip { sigma_low: 4.0, sigma_high: 3.0 }),
+            IntegrationRecipe::average(Rejection::WinsorizedSigma { sigma_low: 4.0, sigma_high: 3.0 }),
+            IntegrationRecipe::average(Rejection::LinearFitClip { sigma_low: 5.0, sigma_high: 3.5 }),
+            IntegrationRecipe::median(Rejection::SigmaClip { sigma_low: 3.0, sigma_high: 3.0 }),
+            IntegrationRecipe::median(Rejection::WinsorizedSigma { sigma_low: 4.0, sigma_high: 3.0 }),
+            IntegrationRecipe::average(Rejection::MinMax { low: 1, high: 1 }),
+            IntegrationRecipe::average(Rejection::Esd {
+                outliers_fraction: 0.3,
+                alpha: 0.05,
+                low_relaxation: 1.5,
+            }),
+            IntegrationRecipe::average(Rejection::Rcr { limit: 0.5 }),
+            IntegrationRecipe::median(Rejection::Rcr { limit: 0.5 }),
+        ];
+        let mut state = 0x5EED_1234u64;
+        let mut scratch = Vec::new();
+        for (k, recipe) in recipes.iter().enumerate() {
+            for trial in 0..300 {
+                let n = 3 + (trial % 30);
+                let stack = random_stack(&mut state, n);
+                let mut plain = stack.clone();
+                let (v_plain, rej_plain) = combine_pixel(&mut plain, *recipe);
+                let mut work: Vec<(f32, u16)> =
+                    stack.iter().enumerate().map(|(i, &v)| (v, i as u16)).collect();
+                let weights = vec![1.0f32; n];
+                let mut mask = vec![0u64; mask_words(n)];
+                let (v_w, rej_w) = combine_pixel_weighted(
+                    &mut work,
+                    &stack,
+                    &weights,
+                    *recipe,
+                    &mut mask,
+                    &mut scratch,
+                );
+                assert_eq!(
+                    v_plain.to_bits(),
+                    v_w.to_bits(),
+                    "recipe {k} trial {trial}: {v_plain} vs {v_w}"
+                );
+                assert_eq!(rej_plain, rej_w, "recipe {k} trial {trial}");
+                let survivors = (0..n).filter(|&i| mask_get(&mask, i)).count();
+                assert_eq!(survivors, n - rej_w, "recipe {k} trial {trial}");
+            }
+        }
+    }
+
+    #[test]
+    fn weighted_average_weights_survivors_and_skips_zero_and_unweighted_samples() {
+        // frames: 0 → 1.0 (w 3), 1 → 2.0 (w 1), 2 → 0.0 (w 1, missing coverage), 3 → 4.0 (w 0)
+        let stack = [1.0f32, 2.0, 0.0, 4.0];
+        let mut work: Vec<(f32, u16)> = stack.iter().enumerate().map(|(i, &v)| (v, i as u16)).collect();
+        let weights = [3.0f32, 1.0, 1.0, 0.0];
+        let mut mask = vec![0u64; 1];
+        let (v, rej) = combine_pixel_weighted(
+            &mut work,
+            &stack,
+            &weights,
+            IntegrationRecipe::average(Rejection::None),
+            &mut mask,
+            &mut Vec::new(),
+        );
+        assert_eq!(rej, 0);
+        assert!((v - (3.0 * 1.0 + 1.0 * 2.0) / 4.0).abs() < 1e-6, "{v}");
+        assert!((0..4).all(|i| mask_get(&mask, i)));
+    }
+
+    #[test]
+    fn weighted_median_ignores_weights_and_mask_names_the_survivors() {
+        let stack = [0.10f32, 0.11, 0.12, 0.13, 0.90];
+        let mut work: Vec<(f32, u16)> = stack.iter().enumerate().map(|(i, &v)| (v, i as u16)).collect();
+        let weights = [1.0f32, 100.0, 1.0, 1.0, 1.0];
+        let mut mask = vec![0u64; 1];
+        let (v, rej) = combine_pixel_weighted(
+            &mut work,
+            &stack,
+            &weights,
+            IntegrationRecipe::median(Rejection::SigmaClip { sigma_low: 1.5, sigma_high: 1.5 }),
+            &mut mask,
+            &mut Vec::new(),
+        );
+        assert_eq!(rej, 1, "the 0.90 outlier");
+        assert!(!mask_get(&mask, 4) && (0..4).all(|i| mask_get(&mask, i)));
+        assert!((v - 0.115).abs() < 1e-6, "median of the four survivors: {v}");
+    }
+
+    #[test]
+    fn rejection_normalized_values_decide_survival_but_output_values_are_averaged() {
+        // Rejection copy says frame 2 is an outlier; its output value is ordinary.
+        let rej = [1.0f32, 1.0, 9.0, 1.0, 1.0];
+        let out = [0.5f32, 0.5, 0.5, 0.5, 0.5];
+        let mut work: Vec<(f32, u16)> = rej.iter().enumerate().map(|(i, &v)| (v, i as u16)).collect();
+        let weights = [1.0f32; 5];
+        let mut mask = vec![0u64; 1];
+        let (v, rejected) = combine_pixel_weighted(
+            &mut work,
+            &out,
+            &weights,
+            IntegrationRecipe::average(Rejection::SigmaClip { sigma_low: 2.0, sigma_high: 1.0 }),
+            &mut mask,
+            &mut Vec::new(),
+        );
+        assert_eq!(rejected, 1);
+        assert!(!mask_get(&mask, 2));
+        assert_eq!(v, 0.5);
+    }
+
+    #[test]
+    fn all_rejected_falls_back_to_the_median_of_the_output_values() {
+        // PercentileClip with zero thresholds on an even-length stack: the
+        // median falls between two elements, so every sample deviates and
+        // the rejection empties the stack (kept == 0).
+        let stack = [0.2f32, 0.3, 0.4, 0.5];
+        let mut work: Vec<(f32, u16)> = stack.iter().enumerate().map(|(i, &v)| (v, i as u16)).collect();
+        let weights = [1.0f32; 4];
+        let mut mask = vec![0u64; 1];
+        let mut plain = stack.to_vec();
+        let (v_plain, r_plain) = combine_pixel(
+            &mut plain,
+            IntegrationRecipe::average(Rejection::PercentileClip { low: 0.0, high: 0.0 }),
+        );
+        let (v, r) = combine_pixel_weighted(
+            &mut work,
+            &stack,
+            &weights,
+            IntegrationRecipe::average(Rejection::PercentileClip { low: 0.0, high: 0.0 }),
+            &mut mask,
+            &mut Vec::new(),
+        );
+        assert_eq!((v.to_bits(), r), (v_plain.to_bits(), r_plain));
+        assert_eq!(r, 4, "every sample rejected");
+        assert!(mask.iter().all(|&w| w == 0), "no survivor bit on the all-rejected fallback");
+    }
+
+    #[test]
+    fn mask_helpers_cover_word_boundaries() {
+        let mut m = vec![0u64; mask_words(130)];
+        assert_eq!(m.len(), 3);
+        for i in [0usize, 63, 64, 127, 128, 129] {
+            mask_set(&mut m, i);
+        }
+        assert!(mask_get(&m, 0) && mask_get(&m, 63) && mask_get(&m, 64) && mask_get(&m, 129));
+        assert!(!mask_get(&m, 1) && !mask_get(&m, 65));
+        mask_clear(&mut m);
+        assert!(m.iter().all(|&w| w == 0));
+    }
+    // ── Min/max, ESD and RCR (M4c Task 1, rulings R-M4c-1/2) ────────────────
+
+    /// `n_clean` samples of N(`mean`, `sigma`) as `(value, frame index)`
+    /// pairs, with `outliers` appended as explicitly placed samples — the
+    /// pairs let a pin name WHICH frames a routine must reject, not just how
+    /// many, so a routine that rejects the right COUNT of the wrong samples
+    /// still fails.
+    fn planted_stack(
+        n_clean: usize,
+        mean: f64,
+        sigma: f64,
+        seed: u64,
+        outliers: &[f32],
+    ) -> Vec<(f32, u16)> {
+        let mut v = fixture_gaussian_stack(n_clean, mean, sigma, seed);
+        v.extend(outliers.iter().map(|&x| sample_from(x)));
+        v.into_iter().enumerate().map(|(i, x)| (x, i as u16)).collect()
+    }
+
+    /// The frame indices surviving in `work[..kept]`, ascending.
+    fn survivors(work: &[(f32, u16)], kept: usize) -> Vec<u16> {
+        let mut s: Vec<u16> = work[..kept].iter().map(|&(_, i)| i).collect();
+        s.sort_unstable();
+        s
+    }
+
+    #[test]
+    fn min_max_drops_the_named_counts_and_never_the_whole_stack() {
+        let mut v: Vec<(f32, u16)> = (0..20).map(|i| (i as f32, i as u16)).collect();
+        let (kept, sorted) = reject_min_max(&mut v, 2, 3);
+        assert_eq!((kept, sorted), (15, true));
+        assert_eq!(survivors(&v, kept), (2u16..17).collect::<Vec<_>>());
+
+        // 10 + 10 on a 20-sample stack would empty it; the clamp keeps one.
+        let mut v2: Vec<(f32, u16)> = (0..20).map(|i| (i as f32, i as u16)).collect();
+        let (kept2, _) = reject_min_max(&mut v2, 10, 10);
+        assert_eq!(kept2, 1, "never every sample");
+        assert_eq!(survivors(&v2, kept2), vec![10u16]);
+
+        // 0/0 is a no-op that does not even sort.
+        let mut v3: Vec<(f32, u16)> = vec![(3.0, 0), (1.0, 1), (2.0, 2)];
+        assert_eq!(reject_min_max(&mut v3, 0, 0), (3, false));
+        assert_eq!(v3[0], (3.0, 0), "an untouched stack keeps its order");
+
+        // A request larger than the stack still leaves one sample.
+        let mut v4: Vec<(f32, u16)> = vec![(1.0, 0), (2.0, 1), (3.0, 2)];
+        assert_eq!(reject_min_max(&mut v4, 9, 9).0, 1);
+    }
+
+    #[test]
+    fn esd_rejects_the_planted_outliers_and_spares_a_clean_gaussian() {
+        // 60 samples of N(1000, 10) plus four planted at +6 sigma.
+        let mut work = planted_stack(
+            60,
+            1000.0,
+            10.0,
+            0xE5D_0001,
+            &[1060.0, 1062.0, 1064.0, 1066.0],
+        );
+        let (kept, sorted) = reject_esd(&mut work, 0.3, 0.05, 1.5);
+        assert!(sorted, "the survivor prefix is left ascending");
+        assert_eq!(kept, 60, "exactly the four planted outliers rejected");
+        assert_eq!(
+            survivors(&work, kept),
+            (0u16..60).collect::<Vec<_>>(),
+            "the four rejected frames must be the planted ones (60..64)"
+        );
+
+        // The same stack with no outliers keeps (nearly) everything.
+        let mut clean = planted_stack(60, 1000.0, 10.0, 0xE5D_0002, &[]);
+        let (kept_clean, _) = reject_esd(&mut clean, 0.3, 0.05, 1.5);
+        assert!(kept_clean >= 58, "kept {kept_clean} of 60");
+
+        // A degenerate configuration rejects nothing rather than everything.
+        let mut degenerate = planted_stack(20, 1000.0, 10.0, 0xE5D_0003, &[]);
+        assert_eq!(reject_esd(&mut degenerate, 0.0, 0.05, 1.5), (20, false));
+        assert_eq!(reject_esd(&mut degenerate, 0.3, 0.0, 1.5), (20, false));
+        assert_eq!(reject_esd(&mut degenerate, 0.3, 1.0, 1.5), (20, false));
+        // Identical samples have no dispersion: nothing is extreme.
+        let mut flat: Vec<(f32, u16)> = (0..12).map(|i| (7.0f32, i as u16)).collect();
+        assert_eq!(reject_esd(&mut flat, 0.3, 0.05, 1.5).0, 12);
+    }
+
+    /// The low relaxation protects the faint side: with `rho = 1` a planted
+    /// LOW outlier is rejected, with a large `rho` it survives.
+    #[test]
+    fn esd_low_relaxation_protects_the_faint_side() {
+        let make = || planted_stack(60, 1000.0, 10.0, 0xE5D_0004, &[940.0]);
+        let mut symmetric = make();
+        let (kept_sym, _) = reject_esd(&mut symmetric, 0.3, 0.05, 1.0);
+        assert!(
+            !survivors(&symmetric, kept_sym).contains(&60),
+            "rho = 1 must reject the low outlier"
+        );
+        let mut relaxed = make();
+        let (kept_relaxed, _) = reject_esd(&mut relaxed, 0.3, 0.05, 3.0);
+        assert!(
+            survivors(&relaxed, kept_relaxed).contains(&60),
+            "a large rho must spare it"
+        );
+    }
+
+    #[test]
+    fn rcr_rejects_the_planted_outliers_and_spares_a_clean_gaussian() {
+        let mut work = planted_stack(
+            60,
+            1000.0,
+            10.0,
+            0x8C8_0001,
+            &[1060.0, 1062.0, 1064.0, 1066.0],
+        );
+        let (kept, sorted) = reject_rcr(&mut work, 0.5);
+        assert!(sorted, "the survivor prefix is left ascending");
+        let kept_ids = survivors(&work, kept);
+        for id in 60u16..64 {
+            assert!(!kept_ids.contains(&id), "planted outlier {id} survived");
+        }
+        assert!(kept >= 57, "kept {kept} of 64 — the bulk must survive");
+
+        let mut clean = planted_stack(60, 1000.0, 10.0, 0x8C8_0002, &[]);
+        let (kept_clean, _) = reject_rcr(&mut clean, 0.5);
+        // This bound has ZERO margin: the measured answer on this fixture
+        // is exactly 57 of 60. That is deliberate — RCR is allowed to trim
+        // the tails of a clean Gaussian and 3 of 60 is what it trims here —
+        // but it means a failure of this line is not noise: the estimator
+        // moved, and the next step is to find out how, not to lower the
+        // bar.
+        assert!(kept_clean >= 57, "kept {kept_clean} of 60");
+
+        // Identical samples have no dispersion: nothing is extreme.
+        let mut flat: Vec<(f32, u16)> = (0..12).map(|i| (7.0f32, i as u16)).collect();
+        assert_eq!(reject_rcr(&mut flat, 0.5).0, 12);
+        // Below three samples the test is not defined.
+        assert_eq!(reject_rcr(&mut [(1.0f32, 0u16), (9.0, 1)], 0.5), (2, false));
+    }
+
+    /// A stricter `limit` rejects at least as much as a looser one (the
+    /// direction of the knob, pinned so a sign error cannot pass).
+    #[test]
+    fn rcr_limit_is_monotone() {
+        let base = planted_stack(80, 500.0, 4.0, 0x8C8_0003, &[]);
+        let loose = reject_rcr(&mut base.clone(), 0.1).0;
+        let chauvenet = reject_rcr(&mut base.clone(), 0.5).0;
+        let strict = reject_rcr(&mut base.clone(), 1.0).0;
+        assert!(loose >= chauvenet, "{loose} vs {chauvenet}");
+        assert!(chauvenet >= strict, "{chauvenet} vs {strict}");
+    }
+
+    #[test]
+    fn apply_rejection_dispatches_min_max_esd_and_rcr() {
+        // 20 well-behaved samples ~100 + one hot 5000.
+        let base: Vec<f32> = {
+            let mut v: Vec<f32> = (0..20).map(|i| 100.0 + (i % 5) as f32).collect();
+            v.push(5000.0);
+            v
+        };
+        for rej in [
+            Rejection::MinMax { low: 1, high: 1 },
+            Rejection::Esd { outliers_fraction: 0.3, alpha: 0.05, low_relaxation: 1.5 },
+            Rejection::Rcr { limit: 0.5 },
+        ] {
+            let (v, rejected) = combine_pixel(&mut base.clone(), IntegrationRecipe::average(rej));
+            assert!(rejected >= 1, "{rej:?} must reject the hot sample");
+            assert!((v - 102.0).abs() < 3.0, "{rej:?} combined near the clean mean, got {v}");
+        }
+        // MinMax { 0, 0 } routes to the routine but rejects nothing.
+        let (v, rejected) = combine_pixel(
+            &mut base.clone(),
+            IntegrationRecipe::average(Rejection::MinMax { low: 0, high: 0 }),
+        );
+        assert_eq!(rejected, 0);
+        assert_eq!(v.to_bits(), mean(&base).to_bits());
+    }
+
+    /// The persisted (master-recipe) JSON is snake_case and append-only:
+    /// these three names are added, none of the existing five move.
+    #[test]
+    fn new_rejection_variants_round_trip_snake_case() {
+        let cases = [
+            (
+                Rejection::MinMax { low: 1, high: 1 },
+                serde_json::json!({"method": "min_max", "low": 1, "high": 1}),
+            ),
+            (
+                Rejection::Esd { outliers_fraction: 0.3, alpha: 0.05, low_relaxation: 1.5 },
+                serde_json::json!({
+                    "method": "esd",
+                    "outliers_fraction": 0.3,
+                    "alpha": 0.05,
+                    "low_relaxation": 1.5
+                }),
+            ),
+            (
+                Rejection::Rcr { limit: 0.5 },
+                serde_json::json!({"method": "rcr", "limit": 0.5}),
+            ),
+        ];
+        for (rej, wire) in cases {
+            assert_eq!(serde_json::to_value(rej).unwrap(), wire, "{rej:?}");
+            assert_eq!(serde_json::from_value::<Rejection>(wire.clone()).unwrap(), rej);
+            let recipe = IntegrationRecipe::average(rej);
+            assert_eq!(parse_recipe_value(&serde_json::to_value(recipe).unwrap()), Some(recipe));
+        }
+        assert_eq!(
+            IntegrationRecipe::average(Rejection::MinMax { low: 2, high: 3 }).describe(),
+            "Average | Min/max (2/3)"
+        );
+        assert_eq!(
+            IntegrationRecipe::median(Rejection::Esd {
+                outliers_fraction: 0.3,
+                alpha: 0.05,
+                low_relaxation: 1.5
+            })
+            .describe(),
+            "Median | ESD (0.3/0.05/1.5)"
+        );
+        assert_eq!(
+            IntegrationRecipe::average(Rejection::Rcr { limit: 0.5 }).describe(),
+            "Average | RCR (0.5)"
+        );
     }
 }

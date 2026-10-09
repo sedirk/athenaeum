@@ -1,6 +1,6 @@
 [package]
 name = "athenaeum-core"
-version = "0.5.6"
+version = "0.6.4"
 description = "Athenaeum core library - shared business logic for desktop and web"
 authors = ["you"]
 edition = "2021"
@@ -18,6 +18,9 @@ anyhow = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 quick-xml = "0.41"
 uuid = { version = "1", features = ["v4"] }
+# SemVer 2.0 precedence for the update check (moved here from athenaeum-tauri
+# so both hosts compare versions with one function).
+semver = "1"
 # Optional submodule path deps. Gated behind the `render`/`solver` features so
 # headless consumers (e.g. Perseus) can depend on athenaeum-core with
 # `default-features = false` and skip them. Neither pulls a C toolchain any
@@ -157,6 +160,26 @@ solver = ["dep:solvemyastro"]
 [[example]]
 name = "band_profile"
 required-features = ["render"]
+
+[[example]]
+name = "measure_probe"
+required-features = ["render", "solver"]
+
+[[example]]
+name = "register_probe"
+required-features = ["render", "solver"]
+
+[[example]]
+name = "integrate_probe"
+required-features = ["render", "solver"]
+
+[[example]]
+name = "ln_probe"
+required-features = ["render", "solver"]
+
+[[example]]
+name = "weight_audit"
+required-features = ["render", "solver"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -9,11 +9,10 @@ import { ExportProgressIndicator } from './ExportProgressIndicator';
 import { AnalysisProgressProvider } from '../contexts/AnalysisProgressContext';
 import { AnalysisQueueIndicator } from './AnalysisQueueIndicator';
 import { MasterBuildProvider } from '../contexts/MasterBuildContext';
+import { StackingProvider } from '../contexts/StackingContext';
 import { ComputeQueueIndicator } from './ComputeQueueIndicator';
 import { PlateSolveProgressProvider } from '../contexts/PlateSolveProgressContext';
 import { PlateSolveQueueIndicator } from './PlateSolveQueueIndicator';
-import { RegistrationProgressProvider } from '../contexts/RegistrationProgressContext';
-import { RegistrationQueueIndicator } from './RegistrationQueueIndicator';
 import { PlateSolveIndexMissingModal } from './plate-solve';
 import { NotificationProvider } from '../contexts/NotificationContext';
 import { NavHistoryProvider, useNavHistory } from '../contexts/NavHistoryContext';
@@ -26,6 +25,8 @@ import { NotificationPanel } from './NotificationPanel';
 import { TransfersProvider } from '../contexts/TransfersContext';
 import { TransferIndicator } from './transfers/TransferIndicator';
 import { TransfersPanel } from './transfers/TransfersPanel';
+import { UpdatesProvider } from '../contexts/UpdatesContext';
+import { UpdateDialog } from './updates/UpdateDialog';
 import { AutoUpdateCheck } from './AutoUpdateCheck';
 import { useProjectMatches } from '../hooks/useProjectMatches';
 import { useContentIndexNotifications } from '../hooks/useContentIndex';
@@ -88,12 +89,13 @@ export default function Layout() {
     <SessionStateProvider>
     <NotificationProvider>
     <TransfersProvider>
+    <UpdatesProvider>
     <ScanProgressProvider>
       <ExportProgressProvider>
         <AnalysisProgressProvider>
         <PlateSolveProgressProvider>
-        <RegistrationProgressProvider>
         <MasterBuildProvider>
+        <StackingProvider>
         <div className="flex h-screen bg-surface text-content">
           {/* Sidebar Navigation */}
           <aside
@@ -138,7 +140,6 @@ export default function Layout() {
             <ComputeQueueIndicator collapsed={collapsed} />
             <TransferIndicator collapsed={collapsed} />
             <PlateSolveQueueIndicator collapsed={collapsed} />
-            <RegistrationQueueIndicator collapsed={collapsed} />
             <NotificationBell collapsed={collapsed} />
 
             <div className={`${collapsed ? 'p-2' : 'p-4'} pt-0`}>
@@ -168,18 +169,20 @@ export default function Layout() {
           <PlateSolveIndexMissingModal />
           <ToastStack />
           <NotificationPanel />
+          <UpdateDialog />
           <TransfersPanel />
           <AutoUpdateCheck />
           <ProjectMatchesListener />
           <ContentIndexListener />
           <GlobalNavKeys />
         </div>
+        </StackingProvider>
         </MasterBuildProvider>
-        </RegistrationProgressProvider>
         </PlateSolveProgressProvider>
         </AnalysisProgressProvider>
       </ExportProgressProvider>
     </ScanProgressProvider>
+    </UpdatesProvider>
     </TransfersProvider>
     </NotificationProvider>
     </SessionStateProvider>

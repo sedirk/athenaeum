@@ -1,0 +1,183 @@
+// The stage inspector's numeric input: the export tab's two-state discipline
+// (`ExportTab.tsx` lines 164–216) — a string draft that survives a partial
+// edit ("0."), committed to the caller only once it parses, and snapped back
+// to the last-committed value on blur so an out-of-range or unparsable typed
+// string never lingers on screen.
+//
+// Extension beyond the export tab's own fields (which are 1:1 local state):
+// this field's `value` can also change from OUTSIDE while mounted — a preset
+// applied from the toolbar, or a reload of the stored config — so the draft
+// re-syncs to a changed `value` whenever the input is not the focused
+// element. That keeps "never fight a partial edit" (don't resync while the
+// user is actively typing) without leaving a preset's numbers stale on
+// screen until the user happens to blur that particular field.
+
+import { useEffect, useRef, useState } from 'react';
+
+function clampNumber(n: number, min?: number, max?: number): number {
+  let v = n;
+  if (min !== undefined) v = Math.max(min, v);
+  if (max !== undefined) v = Math.min(max, v);
+  return v;
+}
+
+/** Help text for a nullable numeric field, derived from its `presetDefault`
+ *  value — never a hard-coded phrase (fix round 1, Minor #5): the preset's
+ *  `null` reads "off by default", a concrete number reads "default N". Every
+ *  panel with a nullable field has `presetDefault` available and should read
+ *  the field's actual default off it, rather than assuming it is off. */
+export function nullableDefaultHelp(defaultValue: number | null, suffix?: string): string {
+  const base = defaultValue === null ? 'off by default' : `default ${defaultValue}`;
+  return suffix ? `${base} — ${suffix}` : base;
+}
+
+export interface NumericFieldProps {
+  label: string;
+  value: number;
+  onCommit: (n: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Help text under the field — states the field's default (never a
+   *  hard-coded number; callers read it off `get_stacking_presets().default`). */
+  help?: string;
+  disabled?: boolean;
+}
+
+/**
+ * A6 (final fix wave), documenting pre-existing, shared behaviour: `onCommit`
+ * receives the CLAMPED value on every keystroke (`handleChange` clamps
+ * before calling it), but the visible `draft` string is whatever the user
+ * literally typed — unclamped — until the field loses focus, at which point
+ * `handleBlur` snaps `draft` back to `String(value)` (the last committed,
+ * already-clamped number). So typing `999` into a field capped at `100`
+ * commits `100` immediately, but the input still SHOWS `999` until blur.
+ * This is deliberate (never fight a partial edit while the user is still
+ * typing — see the file-level comment above), not a bug; every panel using
+ * this field inherits it.
+ */
+export function NumericField({ label, value, onCommit, min, max, step, help, disabled }: NumericFieldProps) {
+  const [draft, setDraft] = useState(() => String(value));
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setDraft(String(value));
+    }
+  }, [value]);
+
+  const handleChange = (v: string) => {
+    setDraft(v);
+    const n = parseFloat(v);
+    if (Number.isFinite(n)) {
+      onCommit(clampNumber(n, min, max));
+    }
+  };
+
+  const handleBlur = () => setDraft(String(value));
+
+  return (
+    <div>
+      {label && (
+        <label className="block text-xs text-content-secondary mb-1">{label}</label>
+      )}
+      <input
+        ref={inputRef}
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={handleBlur}
+        className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
+      />
+      {help && <p className="mt-1 text-[11px] text-content-muted">{help}</p>}
+    </div>
+  );
+}
+
+export interface NullableNumericFieldProps {
+  label: string;
+  value: number | null;
+  /** The field's actual preset-default value (`presetDefault`'s own field —
+   *  every built-in preset currently leaves these `null`, but this is read
+   *  off the real preset, not invented). Re-enabling the field seeds from
+   *  (in order): the last value the user had it at, this preset default, or
+   *  `0` only as the last resort when neither exists (fix round 1, Minor #4
+   *  — never a hard-coded domain-specific seed like "8 px" or "0.6"). */
+  presetDefaultValue: number | null;
+  onCommit: (n: number | null) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  help?: string;
+  disabled?: boolean;
+}
+
+/** A nullable numeric field with an explicit on/off toggle — `maxFwhmPx`,
+ *  `maxEccentricity`, `minStars`, `integration.rangeHigh`/`rangeLow` all
+ *  default to `null` ("off") in the M1 presets and stay off until the user
+ *  turns them on. */
+export function NullableNumericField({
+  label,
+  value,
+  presetDefaultValue,
+  onCommit,
+  min,
+  max,
+  step,
+  help,
+  disabled,
+}: NullableNumericFieldProps) {
+  const on = value !== null;
+
+  // The last value the user had this field at while it was on, so
+  // re-enabling after toggling off restores it instead of guessing again
+  // (fix round 1, Minor #4).
+  const lastValueRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (value !== null) lastValueRef.current = value;
+  }, [value]);
+
+  const handleToggle = (checked: boolean) => {
+    if (!checked) {
+      onCommit(null);
+      return;
+    }
+    onCommit(lastValueRef.current ?? presetDefaultValue ?? 0);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-content-secondary">{label}</span>
+        <label className="flex items-center gap-1.5 text-[11px] text-content-muted cursor-pointer">
+          <input
+            type="checkbox"
+            checked={on}
+            disabled={disabled}
+            onChange={(e) => handleToggle(e.target.checked)}
+            className="w-3.5 h-3.5 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
+          />
+          {on ? 'On' : 'Off'}
+        </label>
+      </div>
+      {on ? (
+        <NumericField
+          label=""
+          value={value}
+          onCommit={onCommit}
+          min={min}
+          max={max}
+          step={step}
+          help={help}
+          disabled={disabled}
+        />
+      ) : (
+        help && <p className="mt-1 text-[11px] text-content-muted">{help}</p>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,963 @@
+//! Per-frame, per-channel measurement of calibrated frames (spec §4.1):
+//! detection, PSF fits, the PSF-signal totals, the large-scale background
+//! residual, MRS noise, the normalization statistics and the classic SNR
+//! weight — everything the weighting, selection and normalization stages
+//! consume. Reads through `PlaneReader`, one plane at a time.
+
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
+use astroimage::{DetectionLevels, ImageAnalyzer};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
+
+use super::prefilter::{self, SeedPrefilter};
+use super::psf_signal::{self, FitParams, PsfModel, Seed};
+use super::structure::{self, SeedDetector, StructureParams};
+use crate::integration::plane_reader::PlaneReader;
+use crate::integration::stats::{self, LocationScale, ScaleEstimator, CLIP_HI, CLIP_LO};
+use crate::integration::IntegrationError;
+
+/// Calibrated frames are float32 in `[0, 1]`; the detector and the MRS
+/// estimator carry absolute floors tuned for 16-bit ADU data, so they see a
+/// copy scaled by this factor. Every estimator this module reports is
+/// scale-invariant (PSF Signal Weight, PSF SNR) or divided back into
+/// native units.
+pub const ADU_SCALE: f32 = 65535.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MeasureOptions {
+    pub psf_model: PsfModel,
+    /// Detection cap (spec §9.2 `maxStars`).
+    pub max_stars: usize,
+    pub scale_estimator: ScaleEstimator,
+    /// The sensitivity dial — a flux-SNR floor on the detections the fitter
+    /// is seeded with (the detector's own `flux / sqrt(flux + pi*r_ap^2*sigma^2)`).
+    ///
+    /// Any value at or below 10 is inert: the detector's own scan already
+    /// refuses a detection unless `snr > 10`, so the shipped default of 5
+    /// never removes anything (measured — `--min-snr 10` is bit-identical to
+    /// `--min-snr 5` on 94 real frames). Only a value above 10 cuts.
+    pub min_snr: f32,
+    /// What the seed DETECTION runs on (math reference §5.1). The PSF fits,
+    /// the aperture flux, the background model and the noise estimate always
+    /// see the untouched plane, whatever this says.
+    pub seed_prefilter: SeedPrefilter,
+    /// Star-detection threshold for the seed population, in sigma above the
+    /// LOCAL background (spec §9.2 `measurement.detectionSigma`). The
+    /// detector's two ladder levels become `background + k*noise` with
+    /// `k = detection_sigma` and `k/2` — the fainter level the scan retries
+    /// at, half the primary the way the rank budget's `24*max_stars` is four
+    /// times its `6*max_stars`.
+    ///
+    /// Noise-relative is the point: the rank budget this replaces set the
+    /// levels from a fixed bright-pixel count, so a sharp, bright-sky night
+    /// (higher peaks for the same flux) handed the estimator several times
+    /// the seed population a soft, dark one did, and the frame ranking
+    /// inverted against the external reference (M4a Task 2, ruling
+    /// R-M4a-1).
+    pub detection_sigma: f32,
+    /// WHICH detector finds the seeds (spec §9.2 `measurement.seedDetector`,
+    /// ruling R-M4c-11). `Peak` reads `detection_sigma` and
+    /// `seed_prefilter`; `Structure` reads `structure` instead — the two
+    /// detectors share no dial.
+    pub seed_detector: SeedDetector,
+    /// The structure detector's own dials, used only when `seed_detector`
+    /// is `Structure`. Not a `StackingConfig` field: a run selects the
+    /// detector, never its internals (M4c Task 0 calibrated them once).
+    pub structure: StructureParams,
+}
+
+impl Default for MeasureOptions {
+    fn default() -> Self {
+        MeasureOptions {
+            psf_model: PsfModel::Auto,
+            max_stars: 24576,
+            scale_estimator: ScaleEstimator::Bwmv,
+            min_snr: 5.0,
+            seed_prefilter: DEFAULT_SEED_PREFILTER,
+            detection_sigma: DEFAULT_DETECTION_SIGMA,
+            seed_detector: DEFAULT_SEED_DETECTOR,
+            structure: StructureParams::default(),
+        }
+    }
+}
+
+/// Default for [`MeasureOptions::detection_sigma`] and
+/// [`crate::stacking::config::MeasurementConfig::detection_sigma`].
+///
+/// Calibrated in M4a Task 2 against an external reference's own per-frame
+/// PSF-fit counts and frame ranking on 368 real frames (a mono and an OSC
+/// group over three nights), sweeping `k` from 5 to 32.
+///
+/// It is deliberately far above the "5σ detection" convention, and that is
+/// not a contradiction: this threshold is compared against a star's PEAK
+/// pixel over the local background in units of the PER-PIXEL noise, while a
+/// structure-based detector's sensitivity aggregates a whole star's pixels.
+/// 20 is where our peak threshold reproduces that detector's answer best:
+/// every mono night's fit count lands inside `[0.7, 1.4]` of the
+/// reference's (1.01 / 1.05 / 0.82), and it is the only value tested at
+/// which BOTH groups' top-20 frame rankings agree with the reference
+/// (18/20 mono, 14/20 OSC — and the OSC top 20 draws from the same two
+/// nights the reference draws from). Below ~16 the population runs 15-30 %
+/// rich and the sharpest night crowds out the ranking; above ~24 that
+/// night is pushed off the top entirely and the soft nights start losing
+/// more than a quarter of their stars.
+pub const DEFAULT_DETECTION_SIGMA: f32 = 20.0;
+
+/// Default for [`MeasureOptions::seed_prefilter`] and
+/// [`crate::stacking::config::MeasurementConfig::seed_prefilter`].
+pub const DEFAULT_SEED_PREFILTER: SeedPrefilter = SeedPrefilter::None;
+
+/// Default for [`MeasureOptions::seed_detector`] and
+/// [`crate::stacking::config::MeasurementConfig::seed_detector`].
+///
+/// M4c Task 0 (ruling R-M4c-11) calibrated the structure detector against
+/// the same external per-frame log M4a's peak threshold was calibrated on,
+/// on the same 368 real frames; that task's report carries the grid and
+/// the verdict this constant is.
+pub const DEFAULT_SEED_DETECTOR: SeedDetector = SeedDetector::Peak;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum NoiseSource {
+    #[default]
+    Mrs,
+    /// MRS was unavailable; `noise` is `N*`.
+    BackgroundResidual,
+}
+
+/// One channel's measurement, in native `[0, 1]` units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChannelMeasurement {
+    pub stars_detected: usize,
+    pub stars_fitted: usize,
+    pub beta: f64,
+    pub fwhm_px: f64,
+    pub eccentricity: f64,
+    pub tflux: f64,
+    pub tmean_flux: f64,
+    /// Mean fluxes RCR flagged in the PSF-signal totals (spec §1.1).
+    pub mean_flux_rejected: usize,
+    pub m_star: f64,
+    pub n_star: f64,
+    pub noise: f64,
+    pub noise_source: NoiseSource,
+    pub median: f64,
+    pub mad: f64,
+    pub median_mean_dev: f64,
+    /// Classic `MedianMeanDev² / Noise²`.
+    pub snr_weight: f64,
+    pub noise_scale_low: f64,
+    pub noise_scale_high: f64,
+    /// Normalization location (median) and two-sided scale.
+    pub location: f64,
+    pub scale: f64,
+    pub psf_signal_weight: f64,
+    pub psf_snr: f64,
+}
+
+impl ChannelMeasurement {
+    pub fn location_scale(&self) -> LocationScale {
+        LocationScale {
+            location: self.location as f32,
+            scale: self.scale as f32,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameMeasurement {
+    pub width: usize,
+    pub height: usize,
+    pub channels: Vec<ChannelMeasurement>,
+    pub duration_ms: u64,
+}
+
+impl FrameMeasurement {
+    fn mean_of(&self, f: impl Fn(&ChannelMeasurement) -> f64) -> f64 {
+        if self.channels.is_empty() {
+            0.0
+        } else {
+            self.channels.iter().map(f).sum::<f64>() / self.channels.len() as f64
+        }
+    }
+    pub fn mean_fwhm_px(&self) -> f64 {
+        self.mean_of(|c| c.fwhm_px)
+    }
+    pub fn mean_eccentricity(&self) -> f64 {
+        self.mean_of(|c| c.eccentricity)
+    }
+    /// Mean over planes of `ChannelMeasurement::median` — the frame's sky
+    /// background level, native `[0, 1]` units. This is the `sky[i]`
+    /// [`crate::stacking::weights::sky_penalized_order`] penalizes the
+    /// normalization anchor / LN-reference-member ranking on (spec §4.4,
+    /// ruling R-M3-17 v2).
+    pub fn mean_median(&self) -> f64 {
+        self.mean_of(|c| c.median)
+    }
+    pub fn mean_psf_signal_weight(&self) -> f64 {
+        self.mean_of(|c| c.psf_signal_weight)
+    }
+    pub fn min_stars(&self) -> usize {
+        self.channels
+            .iter()
+            .map(|c| c.stars_fitted)
+            .min()
+            .unwrap_or(0)
+    }
+}
+
+/// Which detector seeds a plane's PSF fits (spec §4.1 uses `Fast`; the
+/// Checkpoint B probe's `--seeds full` cross-checks against the slower,
+/// two-pass detector to see whether the choice moves the measurement).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedSource {
+    /// `ImageAnalyzer::detect_fast_data` — the single-pass detector
+    /// `measure_plane` has used since Plan 2.
+    Fast,
+    /// `ImageAnalyzer::analyze_data` — the full two-pass detect+measure
+    /// pipeline; its per-star metrics become the seeds instead.
+    Full,
+    /// [`crate::stacking::structure::detect_structures`] — the structure-map
+    /// detector (M4c Task 0). `Fast` resolves to this whenever
+    /// [`MeasureOptions::seed_detector`] says so, so a caller only passes it
+    /// explicitly to override a config that says `Peak`.
+    Structure,
+}
+
+/// Measure one plane. Detection, fitting, the background model and MRS run
+/// on an ADU-scaled copy; the sample statistics run on the native data.
+pub fn measure_plane(
+    data: &[f32],
+    w: usize,
+    h: usize,
+    opts: &MeasureOptions,
+    pool: Option<&Arc<rayon::ThreadPool>>,
+) -> ChannelMeasurement {
+    measure_plane_with_seeds(data, w, h, opts, pool, SeedSource::Fast)
+}
+
+/// As `measure_plane`, but the seeds handed to the PSF fitter come from the
+/// chosen detector instead of always `detect_fast_data`.
+pub fn measure_plane_with_seeds(
+    data: &[f32],
+    w: usize,
+    h: usize,
+    opts: &MeasureOptions,
+    pool: Option<&Arc<rayon::ThreadPool>>,
+    seed_source: SeedSource,
+) -> ChannelMeasurement {
+    let scaled: Vec<f32> = data.iter().map(|v| v * ADU_SCALE).collect();
+
+    // The background model and the noise σ are measured FIRST, and on the
+    // UNFILTERED plane, because the seed detection below may need that σ:
+    // a pre-filtered detection copy has its own, smaller noise, and a level
+    // derived from it would move down with the stars the filter attenuates
+    // (M4a Task 2 fix round 2, ruling R-M4a-14). Same numbers as before —
+    // both are pure functions of `scaled` — computed once and reused for
+    // the reported `noise`/`m_star`/`n_star` further down.
+    let bg = match pool {
+        Some(p) => p.install(|| psf_signal::background_residual(&scaled, w, h)),
+        None => psf_signal::background_residual(&scaled, w, h),
+    };
+    let (m_star, n_star) = match bg {
+        Some(v) => v,
+        None => {
+            warn!(
+                width = w,
+                height = h,
+                "large-scale background model unavailable; M* and N* are zero"
+            );
+            (0.0, 0.0)
+        }
+    };
+    let (noise_adu, noise_source) = match psf_signal::noise_mrs(&scaled, w, h) {
+        Some(n) => (n as f64, NoiseSource::Mrs),
+        None => {
+            warn!(
+                n_star,
+                "MRS noise unavailable; using the background residual scale"
+            );
+            (n_star, NoiseSource::BackgroundResidual)
+        }
+    };
+
+    // A run selects its detector through the config; `seed_source` is the
+    // probe-level override the dev harnesses pass. `Fast` means "whatever
+    // the options say", so the two never contradict each other silently.
+    let seed_source = match (seed_source, opts.seed_detector) {
+        (SeedSource::Fast, SeedDetector::Structure) => SeedSource::Structure,
+        (s, _) => s,
+    };
+
+    let seeds: Vec<Seed> = match seed_source {
+        SeedSource::Fast => {
+            // Detection may run on a pre-filtered copy; EVERYTHING after it
+            // (the fits below, `background_residual`, `noise_mrs`, the
+            // sample statistics) stays on the untouched plane.
+            let detect_on = match opts.seed_prefilter {
+                SeedPrefilter::None => None,
+                SeedPrefilter::Median3 => Some(prefilter::median3(&scaled, w, h)),
+            };
+            let detect_data: &[f32] = detect_on.as_deref().unwrap_or(&scaled);
+            // Noise-relative levels, not the detector's default rank budget:
+            // the seed population has to be set by how far above THIS
+            // frame's sky a star stands, not by a bright-pixel count that a
+            // brighter sky silently deepens.
+            //
+            // With a pre-filter on, the σ must come from the UNFILTERED
+            // plane and the levels are handed over in ADU: the 3×3 median
+            // attenuates the noise (≈ 0.42×) as well as the stars, so a
+            // level the detector measured on the filtered copy would fall
+            // with the peaks and the filter would cancel itself — which is
+            // exactly what fix round 1 measured (ruling R-M4a-14).
+            let levels = match opts.seed_prefilter {
+                SeedPrefilter::None => DetectionLevels::NoiseRelative {
+                    k1: opts.detection_sigma,
+                    k2: opts.detection_sigma * 0.5,
+                },
+                SeedPrefilter::Median3 if noise_adu > 0.0 => DetectionLevels::Absolute {
+                    above_bg_1: opts.detection_sigma * noise_adu as f32,
+                    above_bg_2: opts.detection_sigma * 0.5 * noise_adu as f32,
+                },
+                SeedPrefilter::Median3 => {
+                    // Neither MRS nor the background residual produced a
+                    // scale — there is no unfiltered σ to hold the level
+                    // still, so fall back to the filtered copy's own.
+                    warn!(
+                        "no unfiltered noise estimate; the pre-filtered detection loses its threshold anchor"
+                    );
+                    DetectionLevels::NoiseRelative {
+                        k1: opts.detection_sigma,
+                        k2: opts.detection_sigma * 0.5,
+                    }
+                }
+            };
+            let mut analyzer = ImageAnalyzer::new()
+                .with_max_stars(opts.max_stars.max(8))
+                .with_centroid_refine(false)
+                .with_detection_levels(levels);
+            if let Some(p) = pool {
+                analyzer = analyzer.with_thread_pool(Arc::clone(p));
+            }
+            match analyzer.detect_fast_data(detect_data, w, h, 1) {
+                Ok(r) => r
+                    .stars
+                    .iter()
+                    .filter(|s| s.snr >= opts.min_snr && s.peak > 0.0)
+                    .map(|s| Seed {
+                        x: s.x as f64,
+                        y: s.y as f64,
+                        peak: s.peak as f64,
+                        flux: s.flux as f64,
+                    })
+                    .collect(),
+                Err(e) => {
+                    warn!(error = %e, "star detection failed; the plane measures as starless");
+                    Vec::new()
+                }
+            }
+        }
+        SeedSource::Full => {
+            // `measure_cap` defaults to 500 and truncates AFTER measurement
+            // (unlike `with_max_stars`, which caps detection) — left at the
+            // default, the full path only ever measures the 500 brightest
+            // detections regardless of `opts.max_stars`, starving PSFSW/PSF
+            // SNR (both quadratic in fitted-star count) against the fast
+            // arm's much larger seed set. 0 measures every detection.
+            let mut analyzer = ImageAnalyzer::new()
+                .with_max_stars(opts.max_stars)
+                .with_measure_cap(0);
+            if let Some(p) = pool {
+                analyzer = analyzer.with_thread_pool(Arc::clone(p));
+            }
+            match analyzer.analyze_data(&scaled, w, h, 1) {
+                Ok(r) => r
+                    .stars
+                    .iter()
+                    .filter(|s| s.snr >= opts.min_snr && s.peak > 0.0)
+                    .map(|s| Seed {
+                        x: s.x as f64,
+                        y: s.y as f64,
+                        peak: s.peak as f64,
+                        flux: s.flux as f64,
+                    })
+                    .collect(),
+                Err(e) => {
+                    warn!(error = %e, "full analysis failed; the plane measures as starless");
+                    Vec::new()
+                }
+            }
+        }
+        SeedSource::Structure => {
+            // The map is built from the same ADU-scaled copy everything
+            // else measures, so the saturation limit — a `[0, 1]` fraction
+            // in the config — is scaled with it. The detector carries the
+            // reference's own hot-pixel median internally, so
+            // `seed_prefilter` is NOT consulted here: a second median on
+            // top of that one would be a different filter, not a stronger
+            // one. `min_snr` is likewise inert — this detector's own
+            // sensitivity IS its SNR gate.
+            let p = StructureParams {
+                upper_limit: opts.structure.upper_limit * ADU_SCALE,
+                ..opts.structure
+            };
+            let mut seeds = match pool {
+                Some(pl) => pl.install(|| structure::detect_structures(&scaled, w, h, &p)),
+                None => structure::detect_structures(&scaled, w, h, &p),
+            };
+            // Brightest first already, so the cap keeps the brightest.
+            seeds.truncate(opts.max_stars.max(8));
+            seeds
+        }
+    };
+    let stars_detected = seeds.len();
+
+    let params = FitParams::default();
+    let outcome = match pool {
+        Some(p) => {
+            p.install(|| psf_signal::fit_stars(&scaled, w, h, &seeds, opts.psf_model, &params))
+        }
+        None => psf_signal::fit_stars(&scaled, w, h, &seeds, opts.psf_model, &params),
+    };
+    let totals = psf_signal::signal_totals(&outcome.fits);
+    let (fwhm_px, eccentricity) = psf_signal::frame_shape(&outcome.fits).unwrap_or((0.0, 0.0));
+    let sample = stats::stratified_sample(data, w, h);
+    let clipped = stats::clip_sample(&sample, CLIP_LO, CLIP_HI);
+    let (median, mad, median_mean_dev) = if clipped.is_empty() {
+        warn!(
+            samples = sample.len(),
+            "no in-range samples after clipping; the plane may not be in [0, 1]"
+        );
+        (0.0, 0.0, 0.0)
+    } else {
+        let m = stats::median_of(&clipped);
+        (
+            m as f64,
+            stats::mad_about(&clipped, m) as f64,
+            stats::avg_dev_about(&clipped, m) as f64,
+        )
+    };
+    let ls = stats::location_scale(&clipped, opts.scale_estimator).unwrap_or(LocationScale {
+        location: median as f32,
+        scale: 0.0,
+    });
+    let (noise_scale_low, noise_scale_high) = stats::noise_scale_factors(&sample)
+        .map(|(a, b)| (a as f64, b as f64))
+        .unwrap_or((0.0, 0.0));
+
+    let s = ADU_SCALE as f64;
+    let noise = noise_adu / s;
+    let snr_weight = if noise > 0.0 {
+        (median_mean_dev / noise).powi(2)
+    } else {
+        0.0
+    };
+    ChannelMeasurement {
+        stars_detected,
+        stars_fitted: outcome.fits.len(),
+        beta: outcome.beta,
+        fwhm_px,
+        eccentricity,
+        tflux: totals.tflux / s,
+        tmean_flux: totals.tmean_flux / s,
+        mean_flux_rejected: totals.rejected,
+        m_star: m_star / s,
+        n_star: n_star / s,
+        noise,
+        noise_source,
+        median,
+        mad,
+        median_mean_dev,
+        snr_weight,
+        noise_scale_low,
+        noise_scale_high,
+        location: ls.location as f64,
+        scale: ls.scale as f64,
+        // Both estimators are scale-invariant, so the ADU-unit inputs give
+        // the native-unit answer.
+        psf_signal_weight: psf_signal::psf_signal_weight(
+            totals.tflux,
+            totals.tmean_flux,
+            noise_adu,
+            m_star,
+        ),
+        psf_snr: psf_signal::psf_snr(totals.tflux, noise_adu),
+    }
+}
+
+/// Measure every plane of a calibrated frame; checks `cancel` before each
+/// plane.
+pub fn measure_frame(
+    path: &Path,
+    opts: &MeasureOptions,
+    pool: Option<&Arc<rayon::ThreadPool>>,
+    cancel: &AtomicBool,
+) -> Result<FrameMeasurement, IntegrationError> {
+    measure_frame_with_seeds(path, opts, pool, cancel, SeedSource::Fast)
+}
+
+/// As `measure_frame`, but every plane is seeded via `measure_plane_with_seeds`.
+pub fn measure_frame_with_seeds(
+    path: &Path,
+    opts: &MeasureOptions,
+    pool: Option<&Arc<rayon::ThreadPool>>,
+    cancel: &AtomicBool,
+    seed_source: SeedSource,
+) -> Result<FrameMeasurement, IntegrationError> {
+    let start = Instant::now();
+    let reader = PlaneReader::open(path)?;
+    let (w, h) = (reader.width(), reader.height());
+    let mut channels = Vec::with_capacity(reader.channels());
+    for plane in 0..reader.channels() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(IntegrationError::Cancelled);
+        }
+        let data = reader.read_plane(plane)?;
+        let t = Instant::now();
+        let _span = tracing::debug_span!("measure_plane", path = %path.display(), plane).entered();
+        let m = measure_plane_with_seeds(&data, w, h, opts, pool, seed_source);
+        debug!(
+            path = %path.display(),
+            plane,
+            stars_detected = m.stars_detected,
+            stars_fitted = m.stars_fitted,
+            beta = m.beta,
+            fwhm_px = m.fwhm_px,
+            eccentricity = m.eccentricity,
+            noise = m.noise,
+            psf_signal_weight = m.psf_signal_weight,
+            psf_snr = m.psf_snr,
+            detection_sigma = opts.detection_sigma,
+            seed_prefilter = opts.seed_prefilter.as_str(),
+            seed_detector = opts.seed_detector.as_str(),
+            duration_ms = t.elapsed().as_millis() as u64,
+            "frame plane measured"
+        );
+        channels.push(m);
+    }
+    Ok(FrameMeasurement {
+        width: w,
+        height: h,
+        channels,
+        duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fits_writer::write_fits_f32;
+    use crate::geometry::ransac::SplitMix64;
+    use crate::stacking::test_fixtures::synthetic_star_field;
+    use crate::test_support::add_noise;
+    use std::path::PathBuf;
+
+    /// 150 Gaussian stars (σ 1.8 px) on a jittered 15×10 grid, amplitudes
+    /// `(0.1..0.3)·amp_scale`, background 0.08, Gaussian noise `noise`.
+    fn field(seed: u64, amp_scale: f64, noise: f32) -> (Vec<f32>, usize, usize) {
+        let (w, h) = (768, 512);
+        let mut rng = SplitMix64(seed);
+        let mut stars = Vec::new();
+        for j in 0..10 {
+            for i in 0..15 {
+                let x = 40.0 + i as f64 * 48.0 + (rng.next_f64() - 0.5) * 16.0;
+                let y = 40.0 + j as f64 * 48.0 + (rng.next_f64() - 0.5) * 16.0;
+                stars.push((x, y, (0.1 + 0.2 * rng.next_f64()) * amp_scale));
+            }
+        }
+        let sigma = 1.8;
+        let fwhm = 2.354_820_045_030_949_3 * sigma;
+        let data = synthetic_star_field(w, h, &stars, fwhm, noise, seed + 100);
+        (data, w, h)
+    }
+
+    fn write(dir: &Path, name: &str, planes: &[&[f32]], w: usize, h: usize) -> PathBuf {
+        let mut all = Vec::new();
+        for p in planes {
+            all.extend_from_slice(p);
+        }
+        let path = dir.join(name);
+        write_fits_f32(&path, w, h, planes.len(), &all, &[]).unwrap();
+        path
+    }
+
+    #[test]
+    fn measures_a_synthetic_mono_frame() {
+        let (data, w, h) = field(7, 1.0, 0.002);
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "mono.fits", &[&data], w, h);
+        let m = measure_frame(
+            &path,
+            &MeasureOptions::default(),
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!((m.width, m.height, m.channels.len()), (w, h, 1));
+        let c = &m.channels[0];
+        assert!(c.stars_detected >= c.stars_fitted);
+        assert!(c.stars_fitted >= 120, "fitted {}", c.stars_fitted);
+        let fwhm = 2.3548 * 1.8;
+        assert!((c.fwhm_px - fwhm).abs() < 0.1 * fwhm, "fwhm {}", c.fwhm_px);
+        assert!(c.eccentricity < 0.15, "ecc {}", c.eccentricity);
+        assert!(c.beta >= 6.0, "beta {}", c.beta);
+        assert!((c.noise - 0.002).abs() < 0.1 * 0.002, "noise {}", c.noise);
+        assert_eq!(c.noise_source, NoiseSource::Mrs);
+        assert!((c.median - 0.08).abs() < 0.001, "median {}", c.median);
+        assert!((c.scale - 0.002).abs() < 0.1 * 0.002, "scale {}", c.scale);
+        assert!((c.n_star - 0.002).abs() < 0.15 * 0.002, "N* {}", c.n_star);
+        assert!(c.m_star > 0.0 && c.tflux > 0.0 && c.tmean_flux > 0.0);
+        assert!(c.psf_signal_weight > 0.0 && c.psf_signal_weight.is_finite());
+        assert!(c.psf_snr > 0.0 && c.snr_weight > 0.0);
+        assert!(c.noise_scale_low > 0.0 && c.noise_scale_high > 0.0);
+        assert!(m.duration_ms < 60_000);
+        assert_eq!(m.min_stars(), c.stars_fitted);
+    }
+
+    #[test]
+    fn seed_source_fast_is_bit_identical_to_measure_plane() {
+        let (data, w, h) = field(7, 1.0, 0.002);
+        let opts = MeasureOptions::default();
+        let a = measure_plane(&data, w, h, &opts, None);
+        let b = measure_plane_with_seeds(&data, w, h, &opts, None, SeedSource::Fast);
+        assert_eq!(a, b);
+        assert!(a.stars_fitted > 0, "fixture should fit stars: {a:?}");
+    }
+
+    #[test]
+    fn psf_signal_weight_scales_with_signal_squared_and_inverse_noise_squared() {
+        let dir = tempfile::tempdir().unwrap();
+        let opts = MeasureOptions {
+            psf_model: PsfModel::Moffat4,
+            ..MeasureOptions::default()
+        };
+        let run = |name: &str, amp: f64, noise: f32| {
+            let (d, w, h) = field(11, amp, noise);
+            let p = write(dir.path(), name, &[&d], w, h);
+            measure_frame(&p, &opts, None, &AtomicBool::new(false))
+                .unwrap()
+                .channels
+                .remove(0)
+        };
+        let a = run("a.fits", 1.0, 0.002);
+        let b = run("b.fits", 2.0, 0.002);
+        let c = run("c.fits", 1.0, 0.004);
+        let same_stars = |x: &ChannelMeasurement, y: &ChannelMeasurement| {
+            (x.stars_fitted as f64 - y.stars_fitted as f64).abs() <= 0.05 * x.stars_fitted as f64
+        };
+        assert!(
+            same_stars(&a, &b) && same_stars(&a, &c),
+            "{} {} {}",
+            a.stars_fitted,
+            b.stars_fitted,
+            c.stars_fitted
+        );
+        let r = b.psf_signal_weight / a.psf_signal_weight;
+        assert!(r > 3.4 && r < 4.6, "signal ×2 → PSFSW ratio {r}");
+        let r = b.psf_snr / a.psf_snr;
+        assert!(r > 3.6 && r < 4.4, "signal ×2 → PSFSNR ratio {r}");
+        let r = c.psf_signal_weight / a.psf_signal_weight;
+        assert!(r > 0.19 && r < 0.31, "noise ×2 → PSFSW ratio {r}");
+        let r = c.psf_snr / a.psf_snr;
+        assert!(r > 0.2 && r < 0.3, "noise ×2 → PSFSNR ratio {r}");
+    }
+
+    #[test]
+    fn rgb_frames_measure_each_plane_and_honour_cancel() {
+        let (r, w, h) = field(3, 1.0, 0.002);
+        let g: Vec<f32> = r.iter().map(|v| v * 0.5).collect();
+        let b = r.clone();
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "rgb.fits", &[&r, &g, &b], w, h);
+        let opts = MeasureOptions {
+            psf_model: PsfModel::Moffat4,
+            ..MeasureOptions::default()
+        };
+        let m = measure_frame(&path, &opts, None, &AtomicBool::new(false)).unwrap();
+        assert_eq!(m.channels.len(), 3);
+        let (cr, cg, cb) = (&m.channels[0], &m.channels[1], &m.channels[2]);
+        assert!((cg.median - 0.5 * cr.median).abs() < 0.001);
+        assert!(
+            (cg.psf_signal_weight - cr.psf_signal_weight).abs() < 0.15 * cr.psf_signal_weight,
+            "PSFSW is scale-invariant: {} vs {}",
+            cg.psf_signal_weight,
+            cr.psf_signal_weight
+        );
+        assert!((cb.stars_fitted as i64 - cr.stars_fitted as i64).abs() <= 2);
+        assert!((cb.psf_signal_weight - cr.psf_signal_weight).abs() < 1e-3 * cr.psf_signal_weight);
+        assert!(m.mean_fwhm_px() > 3.0 && m.min_stars() >= 120);
+        assert!(m.mean_eccentricity() < 0.15 && m.mean_psf_signal_weight() > 0.0);
+        assert!(matches!(
+            measure_frame(&path, &opts, None, &AtomicBool::new(true)),
+            Err(IntegrationError::Cancelled)
+        ));
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"psfSignalWeight\"") && json.contains("\"noiseSource\":\"mrs\""));
+        // serde_json's default float parser is best-effort (bit-exact needs
+        // its `float_roundtrip` feature), so compare within 1 ULP-scale slack.
+        let back: FrameMeasurement = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            (back.width, back.height, back.duration_ms),
+            (m.width, m.height, m.duration_ms)
+        );
+        assert_eq!(back.channels.len(), m.channels.len());
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * b.abs().max(1e-300);
+        for (a, b) in back.channels.iter().zip(&m.channels) {
+            assert_eq!(
+                (a.stars_detected, a.stars_fitted, a.noise_source),
+                (b.stars_detected, b.stars_fitted, b.noise_source)
+            );
+            for (x, y) in [
+                (a.beta, b.beta),
+                (a.fwhm_px, b.fwhm_px),
+                (a.eccentricity, b.eccentricity),
+                (a.tflux, b.tflux),
+                (a.tmean_flux, b.tmean_flux),
+                (a.m_star, b.m_star),
+                (a.n_star, b.n_star),
+                (a.noise, b.noise),
+                (a.median, b.median),
+                (a.mad, b.mad),
+                (a.median_mean_dev, b.median_mean_dev),
+                (a.snr_weight, b.snr_weight),
+                (a.noise_scale_low, b.noise_scale_low),
+                (a.noise_scale_high, b.noise_scale_high),
+                (a.location, b.location),
+                (a.scale, b.scale),
+                (a.psf_signal_weight, b.psf_signal_weight),
+                (a.psf_snr, b.psf_snr),
+            ] {
+                assert!(close(x, y), "{x} vs {y}");
+            }
+        }
+        let bad = dir.path().join("nope.txt");
+        std::fs::write(&bad, b"x").unwrap();
+        assert!(matches!(
+            measure_frame(&bad, &opts, None, &AtomicBool::new(false)),
+            Err(IntegrationError::BadInput(_))
+        ));
+    }
+
+    #[test]
+    fn a_starless_plane_measures_with_zero_weight() {
+        let (w, h) = (256, 256);
+        let mut data = vec![0.1f32; w * h];
+        add_noise(&mut data, 0.002, 41);
+        let c = measure_plane(&data, w, h, &MeasureOptions::default(), None);
+        // A noise peak or two may survive the fitter; a real field scores
+        // around 1e-3 on this fixture family, a noise fit around 1e-10.
+        assert!(
+            c.stars_fitted <= 3,
+            "noise peaks fitted as stars: {}",
+            c.stars_fitted
+        );
+        assert!(
+            c.psf_signal_weight < 1e-6 && c.psf_snr < 1e-6,
+            "{} {}",
+            c.psf_signal_weight,
+            c.psf_snr
+        );
+        if c.stars_fitted == 0 {
+            assert_eq!((c.fwhm_px, c.eccentricity), (0.0, 0.0));
+        }
+        assert!((c.noise - 0.002).abs() < 0.1 * 0.002, "noise {}", c.noise);
+        assert!((c.location - 0.1).abs() < 0.001, "location {}", c.location);
+    }
+
+    /// The threshold is a real dial: a high sigma keeps only the bright
+    /// end of the field, and the estimator's answer moves with the
+    /// population but not pathologically (PSFSW is quadratic in signal and
+    /// inverse-quadratic in noise — a 3x band bounds it).
+    #[test]
+    fn detection_sigma_steers_the_seed_population() {
+        // The fixture's faintest star is amplitude 0.1 on noise 0.002, i.e.
+        // 50 sigma, and the SECOND (fainter) level sits at half the dial —
+        // so the dial has to pass 100 before it cuts into the population at
+        // all. At 160 the deep level is 80 sigma and keeps roughly the
+        // brightest 70% (amplitudes are uniform on [0.1, 0.3]).
+        const HIGH_SIGMA: f32 = 160.0;
+        let (data, w, h) = field(7, 1.0, 0.002);
+        let low = measure_plane(
+            &data,
+            w,
+            h,
+            &MeasureOptions {
+                detection_sigma: 5.0,
+                ..MeasureOptions::default()
+            },
+            None,
+        );
+        let high = measure_plane(
+            &data,
+            w,
+            h,
+            &MeasureOptions {
+                detection_sigma: HIGH_SIGMA,
+                ..MeasureOptions::default()
+            },
+            None,
+        );
+        assert!(
+            low.stars_fitted >= 120,
+            "sigma 5 keeps the fixture's pinned population: {}",
+            low.stars_fitted
+        );
+        assert!(
+            high.stars_fitted < low.stars_fitted,
+            "sigma {HIGH_SIGMA} must fit strictly fewer: {} vs {}",
+            high.stars_fitted,
+            low.stars_fitted
+        );
+        let r = high.psf_signal_weight / low.psf_signal_weight;
+        assert!(
+            r > 1.0 / 3.0 && r < 3.0,
+            "PSFSW sensitivity to the population is bounded: ratio {r} ({} vs {} fits)",
+            high.stars_fitted,
+            low.stars_fitted
+        );
+    }
+
+    /// The shipping path (`SeedPrefilter::None`) pinned by its NUMBERS, not
+    /// by a delegate equality — `measure_plane` forwards to
+    /// `measure_plane_with_seeds`, so comparing the two can never fail.
+    ///
+    /// These four are what `field(7, 1.0, 0.002)` — 150 Gaussian stars,
+    /// σ 1.8 px, background 0.08, noise 0.002 — measures through the
+    /// default options, recorded 2026-09-11 (M4a Task 2 fix round 3). Any
+    /// later change to detection, the fit region, the acceptance rules or
+    /// the estimator moves at least one of them; that is the point. A task
+    /// that changes one on purpose says so and rewrites the literal.
+    #[test]
+    fn the_shipped_none_path_measures_exactly_these_numbers() {
+        let (data, w, h) = field(7, 1.0, 0.002);
+        let opts = MeasureOptions::default();
+        assert_eq!(opts.seed_prefilter, SeedPrefilter::None);
+        let c = measure_plane(&data, w, h, &opts, None);
+        assert_eq!(
+            (c.stars_detected, c.stars_fitted),
+            (150, 150),
+            "the whole fixture field is detected and fitted"
+        );
+        assert_eq!(c.beta, 10.0, "Auto resolves to the widest β on Gaussians");
+        assert_eq!(c.psf_signal_weight, 1.387_068_045_273_481_56e-3);
+        assert_eq!(c.fwhm_px, 4.122_658_320_014_302_55);
+        // The delegate equality, kept as a cheap structural check — it is
+        // not the pin above.
+        assert_eq!(
+            c,
+            measure_plane_with_seeds(&data, w, h, &opts, None, SeedSource::Fast)
+        );
+    }
+
+    /// With the filter on, the levels are anchored on the unfiltered noise
+    /// — so the filter's own attenuation of the noise cannot move them.
+    /// On this fixture the median suppresses the (σ 1.8 px, well-sampled)
+    /// stars only mildly, so the population survives; what the test pins is
+    /// that the two settings are genuinely different measurements and that
+    /// the filtered one does not collapse.
+    #[test]
+    fn the_median_prefilter_keeps_a_well_sampled_population() {
+        let (data, w, h) = field(7, 1.0, 0.002);
+        let plain = measure_plane(&data, w, h, &MeasureOptions::default(), None);
+        let filtered = measure_plane(
+            &data,
+            w,
+            h,
+            &MeasureOptions {
+                seed_prefilter: SeedPrefilter::Median3,
+                ..MeasureOptions::default()
+            },
+            None,
+        );
+        assert_ne!(plain, filtered, "the pre-filter must change something");
+        assert!(
+            filtered.stars_fitted >= 100,
+            "a well-sampled field survives the median: {} vs {}",
+            filtered.stars_fitted,
+            plain.stars_fitted
+        );
+        // Everything downstream of detection reads the untouched plane, so
+        // the noise and the background model are bit-identical.
+        assert_eq!(filtered.noise, plain.noise);
+        assert_eq!(
+            (filtered.m_star, filtered.n_star),
+            (plain.m_star, plain.n_star)
+        );
+        assert_eq!(filtered.median, plain.median);
+    }
+
+    /// The structure detector is a real, selectable second seed source:
+    /// it fits the fixture's stars, it is NOT the same measurement as the
+    /// peak detector's, and everything downstream of detection still reads
+    /// the untouched plane (so the noise, the background model and the
+    /// sample statistics are bit-identical between the two).
+    #[test]
+    fn the_structure_detector_seeds_a_measurement() {
+        let (data, w, h) = field(7, 1.0, 0.002);
+        let peak = MeasureOptions::default();
+        let structure = MeasureOptions {
+            seed_detector: SeedDetector::Structure,
+            ..MeasureOptions::default()
+        };
+        let a = measure_plane(&data, w, h, &peak, None);
+        let b = measure_plane(&data, w, h, &structure, None);
+        assert!(
+            b.stars_fitted >= 100,
+            "the structure map must seed the fixture's field: {} fits of {} seeds",
+            b.stars_fitted,
+            b.stars_detected
+        );
+        assert_ne!(a, b, "the two detectors are different measurements");
+        assert_eq!(b.noise, a.noise);
+        assert_eq!((b.m_star, b.n_star), (a.m_star, a.n_star));
+        assert_eq!((b.median, b.mad, b.location), (a.median, a.mad, a.location));
+        assert!(b.psf_signal_weight > 0.0 && b.psf_snr > 0.0);
+        // The config selects the detector; `SeedSource::Fast` follows it,
+        // and naming the source explicitly is the same measurement.
+        assert_eq!(
+            b,
+            measure_plane_with_seeds(&data, w, h, &peak, None, SeedSource::Structure)
+        );
+        // ... while an explicit `Full` still wins over the config.
+        assert_eq!(
+            measure_plane_with_seeds(&data, w, h, &structure, None, SeedSource::Full),
+            measure_plane_with_seeds(&data, w, h, &peak, None, SeedSource::Full)
+        );
+    }
+
+    #[test]
+    fn options_serde_defaults() {
+        let d = MeasureOptions::default();
+        assert_eq!(d.max_stars, 24576);
+        assert_eq!(d.psf_model, PsfModel::Auto);
+        assert_eq!(d.scale_estimator, ScaleEstimator::Bwmv);
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains("\"psfModel\":\"auto\"") && json.contains("\"maxStars\":24576"));
+        assert!(json.contains("\"scaleEstimator\":\"bwmv\"") && json.contains("\"minSnr\":5.0"));
+        // M4a Task 2 (ruling R-M4a-1): the seed threshold is a real option
+        // now — this used to assert the field's ABSENCE.
+        assert_eq!(d.detection_sigma, DEFAULT_DETECTION_SIGMA);
+        assert!(json.contains("\"detectionSigma\":20.0"));
+        assert_eq!(d.seed_prefilter, DEFAULT_SEED_PREFILTER);
+        assert!(json.contains("\"seedPrefilter\":\"none\""));
+        // M4c Task 0 (ruling R-M4c-11): which detector, and its own dials.
+        assert_eq!(d.seed_detector, DEFAULT_SEED_DETECTOR);
+        assert_eq!(d.seed_detector, SeedDetector::Peak);
+        assert!(json.contains("\"seedDetector\":\"peak\""));
+        assert_eq!(d.structure, StructureParams::default());
+        assert_eq!(
+            serde_json::from_str::<MeasureOptions>("{}").unwrap(),
+            MeasureOptions::default()
+        );
+        let c: ChannelMeasurement = serde_json::from_str("{\"starsFitted\":3}").unwrap();
+        assert_eq!(c.stars_fitted, 3);
+        assert_eq!(c.noise_source, NoiseSource::Mrs);
+    }
+}
