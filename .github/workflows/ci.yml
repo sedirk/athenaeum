@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   # Documentation-only changes cannot break the build, and a cold run costs
   # over twenty minutes of runner time.
   pull_request:
@@ -11,7 +12,7 @@ on:
   # tests. This run is concurrent with the release build rather than upstream of
   # it — it cannot block a bad publish, but it names one within ten minutes.
   push:
-    branches: [main]
+    branches: [main, feat/i18n-zh-cn]
     tags: ['v*']
     paths-ignore: ['docs/**', '**/*.md', 'LICENSE']
 
@@ -263,3 +264,28 @@ jobs:
       # measurement that settled which runner this is.
       - name: Test workspace
         run: cargo test --workspace --no-fail-fast -- --skip unclean_shutdown_mid_transfer_resumes_on_restart --skip ingest_releases_conn_between_frames
+
+      # Ask the SAME workspace graph for its exact test artifact, then reuse it.
+      # A directory glob can pick stale binaries restored from a previous cache;
+      # a narrower package selection can change feature unification and rebuild.
+      - name: Repeat Windows sync recovery regression
+        shell: pwsh
+        run: |
+          $artifacts = @(cargo test --workspace --no-run --message-format=json | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($LASTEXITCODE -ne 0) { throw "Could not resolve workspace test artifacts" }
+          $binaries = @($artifacts | Where-Object {
+            $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'sync_e2e' -and $_.profile.test -and $_.executable
+          } | ForEach-Object { $_.executable })
+          if ($binaries.Count -ne 1) {
+            throw "Expected one sync_e2e test artifact, found $($binaries.Count)"
+          }
+          $testName = 'ack_timeout_waiting_then_recovery_clears_error_at_serving_stage'
+          $listed = @(& $binaries[0] --list --exact $testName)
+          if ($LASTEXITCODE -ne 0 -or $listed -notcontains "${testName}: test") {
+            throw "Sync recovery regression was not found in the test binary"
+          }
+          1..10 | ForEach-Object {
+            Write-Host "Sync recovery regression: run $_ of 10"
+            & $binaries[0] --exact $testName
+            if ($LASTEXITCODE -ne 0) { throw "Sync recovery regression failed on run $_" }
+          }
