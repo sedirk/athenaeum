@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 9 (Output) inspector panel: the two per-set folder overrides
 // (`config.paths.workingDir`/`outputDir`), cleanup policy, format. The
 // folder picker reuses the Transfers picker verbatim (plan Ruling 6):
@@ -39,6 +40,7 @@ export interface OutputPanelProps {
 }
 
 export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' }: OutputPanelProps) {
+  const { tx } = useI18n();
   const [globalPaths, setGlobalPaths] = useState<StackingPaths | null>(null);
   const [browsing, setBrowsing] = useState<'working' | 'output' | null>(null);
 
@@ -93,7 +95,7 @@ export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' 
       {mode === 'perSet' && (
         <>
           <FolderCard
-            title="Working folder"
+            title={tx("Working folder")}
             hint="Where this run stages registered/intermediate frames."
             setting={workingSetting}
             onChoose={() => choose('working')}
@@ -102,7 +104,7 @@ export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' 
             busy={!!disabled}
           />
           <FolderCard
-            title="Output folder"
+            title={tx("Output folder")}
             hint="Where this run writes its master(s)."
             setting={outputSetting}
             onChoose={() => choose('output')}
@@ -114,7 +116,7 @@ export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' 
       )}
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Cleanup policy</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Cleanup policy")}</label>
         <select
           value={config.output.cleanup}
           disabled={disabled}
@@ -122,7 +124,7 @@ export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' 
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {CLEANUP_POLICIES.map((v) => (
-            <option key={v} value={v}>{cleanupLabel(v)}</option>
+            <option key={v} value={v}>{tx(cleanupLabel(v))}</option>
           ))}
         </select>
       </div>
@@ -132,7 +134,7 @@ export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' 
        *  explanation. The rejection maps stay FITS in both cases, which is
        *  what the note below says. */}
       <div>
-        <span className="block text-xs text-content-secondary mb-1">Format</span>
+        <span className="block text-xs text-content-secondary mb-1">{tx("Format")}</span>
         <div className="space-y-1.5">
           {FORMATS.map((f) => (
             <label key={f.value} className="flex items-start gap-2 cursor-pointer">
@@ -145,7 +147,7 @@ export function OutputPanel({ config, onChange, plan, disabled, mode = 'perSet' 
                 onChange={() => onChange({ ...config, output: { ...config.output, format: f.value } })}
                 className="mt-0.5 w-4 h-4 border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
               />
-              <span className="text-sm text-content-secondary">{f.label}</span>
+              <span className="text-sm text-content-secondary">{tx(f.label)}</span>
             </label>
           ))}
         </div>

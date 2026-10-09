@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 7 (Integrate) inspector panel: combination, rejection method + its
 // per-variant parameters, the Auto rule note, min weight, range low/high,
 // write-rejection-maps.
@@ -88,6 +89,7 @@ export interface IntegratePanelProps {
 }
 
 export function IntegratePanel({ config, onChange, disabled, defaults }: IntegratePanelProps) {
+  const { tx } = useI18n();
   const i = config.integration;
 
   const patch = (p: Partial<StackingConfig['integration']>) => {
@@ -97,7 +99,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Combination</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Combination")}</label>
         <select
           value={i.combination}
           disabled={disabled}
@@ -105,16 +107,16 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {COMBINATIONS.map((v) => (
-            <option key={v} value={v}>{combinationLabel(v)}</option>
+            <option key={v} value={v}>{tx(combinationLabel(v))}</option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {combinationLabel(defaults.integration.combination)}
+          {tx("default")} {tx(combinationLabel(defaults.integration.combination))}
         </p>
       </div>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Rejection method</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Rejection method")}</label>
         <select
           value={i.rejection.method}
           disabled={disabled}
@@ -122,11 +124,11 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {METHODS.map((v) => (
-            <option key={v} value={v}>{METHOD_LABEL[v]}</option>
+            <option key={v} value={v}>{tx(METHOD_LABEL[v])}</option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {METHOD_LABEL[defaults.integration.rejection.method]} — resolves per group: n &lt; 8 percentile
+          {tx("default")} {tx(METHOD_LABEL[defaults.integration.rejection.method])} — resolves per group: n &lt; 8 percentile
           0.2/0.1 · 8–19 Winsorized 4.0/3.0 · ≥ 20 linear fit 5.0/3.5. Min/max, ESD and RCR are
           picked by hand only — Auto never resolves to them.
         </p>
@@ -235,7 +237,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
             disabled={disabled}
           />
           <NumericField
-            label="Low relaxation"
+            label={tx("Low relaxation")}
             value={i.rejection.lowRelaxation}
             onCommit={(n) => patch({ rejection: { method: 'esd', outliersFraction: i.rejection.method === 'esd' ? i.rejection.outliersFraction : 0.3, alpha: i.rejection.method === 'esd' ? i.rejection.alpha : 0.05, lowRelaxation: n } })}
             min={1}
@@ -248,7 +250,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
       )}
       {i.rejection.method === 'rcr' && (
         <NumericField
-          label="Limit"
+          label={tx("Limit")}
           value={i.rejection.limit}
           onCommit={(n) => patch({ rejection: { method: 'rcr', limit: n } })}
           min={0.1}
@@ -260,7 +262,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
       )}
 
       <NumericField
-        label="Min weight"
+        label={tx("Min weight")}
         value={i.minWeight}
         onCommit={(n) => patch({ minWeight: n })}
         min={0}
@@ -275,7 +277,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
           `None`, but the field must still be able to represent `null` (fix
           round 1, Minor #6), not silently coerce it to 0 on every commit. */}
       <NullableNumericField
-        label="Range low"
+        label={tx("Range low")}
         value={i.rangeLow}
         presetDefaultValue={defaults.integration.rangeLow}
         onCommit={(n) => patch({ rangeLow: n })}
@@ -285,7 +287,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
       />
 
       <NullableNumericField
-        label="Range high"
+        label={tx("Range high")}
         value={i.rangeHigh}
         presetDefaultValue={defaults.integration.rangeHigh}
         onCommit={(n) => patch({ rangeHigh: n })}
@@ -302,7 +304,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
           onChange={(e) => patch({ writeRejectionMaps: e.target.checked })}
           className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
         />
-        <span className="text-sm text-content-secondary">Write rejection maps</span>
+        <span className="text-sm text-content-secondary">{tx("Write rejection maps")}</span>
       </label>
 
       {/* Large-scale rejection (M4c): a second integration pass that treats
@@ -320,16 +322,14 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
             }
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Large-scale rejection</span>
+          <span className="text-sm text-content-secondary">{tx("Large-scale rejection")}</span>
         </label>
         <p className="mt-1 text-[11px] text-content-muted">
-          Keeps only the large rejected structures — trails, aircraft — grows them, and
-          re-integrates with those samples forced out. Doubles the integration time.
-        </p>
+          {tx("Keeps only the large rejected structures — trails, aircraft — grows them, and re-integrates with those samples forced out. Doubles the integration time.")}</p>
         {i.largeScale.enabled && (
           <div className="mt-2 space-y-2">
             <NumericField
-              label="Protected layers"
+              label={tx("Protected layers")}
               value={i.largeScale.protectedLayers}
               onCommit={(n) =>
                 patch({
@@ -343,7 +343,7 @@ export function IntegratePanel({ config, onChange, disabled, defaults }: Integra
               help="scale selector: a structure survives from about 2^layers / 2 px thick — 3 px at 2, 5 px at 3, 9 px at 4"
             />
             <NumericField
-              label="Growth"
+              label={tx("Growth")}
               value={i.largeScale.growth}
               onCommit={(n) =>
                 patch({ largeScale: { ...i.largeScale, growth: growthRadius(n) } })

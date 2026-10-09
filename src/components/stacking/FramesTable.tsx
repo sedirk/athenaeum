@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import type { StackingRunDetail, StackingRunFrameRow, RunSummary, SummaryFrame } from '../../types/stacking';
@@ -313,6 +314,7 @@ export function FramesTable({
   onToggleCollapsed,
   disabled = false,
 }: FramesTableProps) {
+  const { tx } = useI18n();
   const [sortKey, setSortKey] = useState<SortKey>('filename');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -351,13 +353,13 @@ export function FramesTable({
         className="flex items-center gap-1.5 text-sm font-medium text-content hover:text-content-secondary transition-colors"
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        Frames ({rows.length})
+        {tx("Frames (")}{rows.length})
       </button>
 
       {!collapsed && (
         <div className="mt-2 overflow-x-auto">
           {rows.length === 0 ? (
-            <p className="text-sm text-content-muted px-1">No light frames in this set.</p>
+            <p className="text-sm text-content-muted px-1">{tx("No light frames in this set.")}</p>
           ) : (
             <table className="w-full text-xs">
               <thead>
@@ -371,13 +373,13 @@ export function FramesTable({
                           c.numeric ? 'tabular-nums' : ''
                         }`}
                       >
-                        {c.label}
+                        {tx(c.label)}
                         {sortKey === c.key &&
                           (sortDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
                       </button>
                     </th>
                   ))}
-                  <th className="py-1.5 px-2 font-medium text-center">Include</th>
+                  <th className="py-1.5 px-2 font-medium text-center">{tx("Include")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -388,7 +390,7 @@ export function FramesTable({
                     </td>
                     <td
                       className="py-1.5 px-2 text-content-secondary font-mono"
-                      title={r.group === '—' ? 'assigned by the next run' : undefined}
+                      title={r.group === '—' ? tx("assigned by the next run") : undefined}
                     >
                       {r.group}
                     </td>
@@ -408,7 +410,7 @@ export function FramesTable({
                             <span>{base}</span>
                             {wcs && (
                               <span
-                                title="seeded from the plate solves"
+                                title={tx("seeded from the plate solves")}
                                 className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${WCS_CHIP}`}
                               >
                                 WCS

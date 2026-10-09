@@ -853,7 +853,7 @@ export default function FrameSetDetail() {
         {([
           { key: 'analysis' as FrameSetTab, label: 'Lights Analysis & Stats', icon: BarChart3 },
           { key: 'calibration' as FrameSetTab, label: 'Calibration Coverage', icon: Crosshair },
-          { key: 'stacking' as FrameSetTab, label: 'Stacking', icon: SquareStack },
+          { key: 'stacking' as FrameSetTab, label: tx('Stacking'), icon: SquareStack },
           { key: 'export' as FrameSetTab, label: 'Export', icon: Layers },
           { key: 'history' as FrameSetTab, label: 'History', icon: History },
         ]).map(({ key, label, icon: Icon }) => {

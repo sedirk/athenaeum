@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 // One modal, two modes (spec §5.1): `available` (notes + install flow) and
 // `whatsNew` (notes + Close). Rendered at app root by Layout.
 
@@ -39,6 +40,7 @@ function useBusyReason(open: boolean): string | null {
 const DIALOG_TITLE_ID = 'update-dialog-title';
 
 export function UpdateDialog() {
+  const { tx } = useI18n();
   const { check, whatsNew, dialog, phase, close, install, restart } = useUpdates();
   const open = dialog !== 'closed';
   const busy = useBusyReason(open);
@@ -89,26 +91,26 @@ export function UpdateDialog() {
         <div className="flex items-start justify-between border-b border-border px-6 py-4">
           <div>
             <h2 id={DIALOG_TITLE_ID} className="text-lg font-semibold text-content">
-              {isAvailable ? `Athenaeum v${version} is available` : `What's new in v${version}`}
+              {tx(isAvailable ? 'Athenaeum v{version} is available' : "What's new in v{version}", { version })}
             </h2>
             {isAvailable && check && (
               <p className="mt-1 text-xs text-content-muted">
-                You have v{check.currentVersion}
+                {tx("You have v")}{check.currentVersion}
                 {check.pubDate ? ` · released ${formatTimestamp(check.pubDate)}` : ''}
                 {check.channel === 'beta' ? ' · beta channel' : ''}
               </p>
             )}
           </div>
-          <button onClick={close} className="rounded p-1 text-content-muted hover:bg-surface-hover hover:text-content" aria-label="Close">
+          <button onClick={close} className="rounded p-1 text-content-muted hover:bg-surface-hover hover:text-content" aria-label={tx("Close")}>
             <X size={18} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {notes ? <ReleaseNotes markdown={notes} /> : <p className="text-sm text-content-muted">No release notes were published for this version.</p>}
+          {notes ? <ReleaseNotes markdown={notes} /> : <p className="text-sm text-content-muted">{tx("No release notes were published for this version.")}</p>}
           {blogUrl && (
             <button onClick={() => void openUrl(blogUrl)} className="mt-4 flex items-center gap-1 text-sm text-accent hover:underline">
-              Read the full post <ExternalLink size={13} />
+              {tx("Read the full post")} <ExternalLink size={13} />
             </button>
           )}
         </div>
@@ -117,7 +119,7 @@ export function UpdateDialog() {
           {isAvailable && phase.kind === 'downloading' && (
             <div>
               <div className="mb-1 flex justify-between text-xs text-content-muted">
-                <span>Downloading v{version}…</span>
+                <span>{tx("Downloading v")}{version}…</span>
                 <span>
                   {formatBytes(phase.downloaded)}
                   {phase.total ? ` / ${formatBytes(phase.total)} · ${Math.floor((phase.downloaded / phase.total) * 100)} %` : ''}
@@ -135,7 +137,7 @@ export function UpdateDialog() {
           {isAvailable && phase.kind === 'installing' && (
             <div>
               <div className="mb-1 flex justify-between text-xs text-content-muted">
-                <span>Installing v{phase.version ?? version}…</span>
+                <span>{tx("Installing v")}{phase.version ?? version}…</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded bg-surface">
                 <div className="h-full bg-accent transition-all" style={{ width: '100%' }} />
@@ -151,8 +153,7 @@ export function UpdateDialog() {
           )}
           {isAvailable && phase.kind === 'ready' && (
             <div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/10 p-3 text-sm text-success">
-              <CheckCircle2 size={15} /> v{phase.version} is installed — restart to apply.
-            </div>
+              <CheckCircle2 size={15} /> v{phase.version}  {tx("is installed — restart to apply.")}</div>
           )}
           {isAvailable && busy && (phase.kind === 'ready' || (isWindows && phase.kind !== 'downloading')) && (
             <div className="flex items-start gap-2 text-sm text-warning">
@@ -163,7 +164,7 @@ export function UpdateDialog() {
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!isAvailable && (
-              <button onClick={close} className="rounded-lg bg-accent px-4 py-2 text-sm hover:bg-accent-hover">Close</button>
+              <button onClick={close} className="rounded-lg bg-accent px-4 py-2 text-sm hover:bg-accent-hover">{tx("Close")}</button>
             )}
 
             {isAvailable && check && !check.platformSupported && (
@@ -171,13 +172,13 @@ export function UpdateDialog() {
                 {check.dockerImage && (
                   <div className="mr-auto flex items-center gap-2">
                     <code className="rounded bg-surface px-2 py-1 font-mono text-xs text-content">docker pull {check.dockerImage}</code>
-                    <button onClick={copyDocker} className="rounded p-1 text-content-muted hover:bg-surface-hover hover:text-content" title="Copy">
+                    <button onClick={copyDocker} className="rounded p-1 text-content-muted hover:bg-surface-hover hover:text-content" title={tx("Copy")}>
                       {copied ? <CheckCircle2 size={15} className="text-success" /> : <Copy size={15} />}
                     </button>
                   </div>
                 )}
                 <button onClick={() => void openUrl(check.downloadPageUrl)} className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm hover:bg-accent-hover">
-                  Open download page <ExternalLink size={13} />
+                  {tx("Open download page")} <ExternalLink size={13} />
                 </button>
               </>
             )}
@@ -186,35 +187,33 @@ export function UpdateDialog() {
               <>
                 {(phase.kind === 'idle' || phase.kind === 'failed') && (
                   <>
-                    <button onClick={close} className="rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">Later</button>
+                    <button onClick={close} className="rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">{tx("Later")}</button>
                     {phase.kind === 'failed' && (
                       <button onClick={() => void openUrl(check.downloadPageUrl)} className="flex items-center gap-2 rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">
-                        Open download page <ExternalLink size={13} />
+                        {tx("Open download page")} <ExternalLink size={13} />
                       </button>
                     )}
                     <button onClick={() => void install()} className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm hover:bg-accent-hover">
                       {phase.kind === 'failed' ? <RefreshCw size={15} /> : <Download size={15} />}
-                      {phase.kind === 'failed' ? 'Retry' : 'Download and install'}
+                      {phase.kind === 'failed' ? tx("Retry") : tx("Download and install")}
                     </button>
                   </>
                 )}
                 {phase.kind === 'ready' && (
                   <>
-                    <button onClick={close} className="rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">Later</button>
+                    <button onClick={close} className="rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">{tx("Later")}</button>
                     <button onClick={() => void restart()} className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm hover:bg-accent-hover">
-                      <RefreshCw size={15} /> Restart now
-                    </button>
+                      <RefreshCw size={15} />  {tx("Restart now")}</button>
                   </>
                 )}
                 {phase.kind === 'restartFailed' && (
                   <>
-                    <button onClick={close} className="rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">Later</button>
+                    <button onClick={close} className="rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">{tx("Later")}</button>
                     <button onClick={() => void openUrl(check.downloadPageUrl)} className="flex items-center gap-2 rounded-lg bg-surface-hover px-4 py-2 text-sm text-content hover:brightness-110">
-                      Open download page <ExternalLink size={13} />
+                      {tx("Open download page")} <ExternalLink size={13} />
                     </button>
                     <button onClick={() => void restart()} className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm hover:bg-accent-hover">
-                      <RefreshCw size={15} /> Restart now
-                    </button>
+                      <RefreshCw size={15} />  {tx("Restart now")}</button>
                   </>
                 )}
               </>

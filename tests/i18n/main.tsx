@@ -5,6 +5,7 @@ import { NavHistoryProvider } from '../../src/contexts/NavHistoryContext';
 import HistoryNav from '../../src/components/HistoryNav';
 import { RolePlaceholderInspector } from '../../src/components/folders/RoleInspector';
 import { ConfirmDialog } from '../../src/components/ConfirmDialog';
+import { StageRow } from '../../src/components/stacking/StageRow';
 import { useState } from 'react';
 import '../../src/index.css';
 
@@ -23,6 +24,8 @@ function Check() {
     <p data-testid="route">{location.pathname}</p>
     <RolePlaceholderInspector kind="calibration_library" onSetUp={() => setDialog(true)} />
     <h2>{tx('Export Mode')}</h2>
+    <StageRow index={5} stage="register" label="Register" state="ready" summary="" selected={false} onSelect={() => {}} />
+    <p data-testid="community-updates">{tx('Community updates are checked on GitHub and installed manually. Official upstream updates will not replace this bilingual build.')}</p>
     {['Lights only', 'Lights + calibration sets', 'Lights + masters', 'Calibrated lights'].map(s => <p key={s}>{tx(s)}</p>)}
     <p data-testid="count">{tx('{count} files missing from disk', { count: 2 })}</p>
     <p data-testid="fallback">{tx('Unknown upstream text')}</p>

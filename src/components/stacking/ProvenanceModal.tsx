@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import type { RunSummary, SummaryFrame } from '../../types/stacking';
@@ -54,6 +55,7 @@ export interface ProvenanceModalProps {
  *  checkbox is the only frame-level write this tab makes, and this modal
  *  isn't it). */
 export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
+  const { tx } = useI18n();
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-surface-elevated rounded-lg w-full max-w-3xl mx-4 border border-border shadow-xl flex flex-col max-h-[85vh]">
@@ -61,35 +63,34 @@ export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
         <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
           <div>
             <h3 className="text-lg font-semibold text-content">
-              Run #{summary.runId} provenance
-            </h3>
+              {tx("Run #")}{summary.runId}  {tx("provenance")}</h3>
             <p className="text-xs text-content-muted">
-              {summary.setName} · {summary.status} · started {formatTimestamp(summary.startedAt)}
-              {summary.finishedAt ? ` · finished ${formatTimestamp(summary.finishedAt)}` : ''} · app{' '}
+              {summary.setName} · {summary.status}  {tx("· started")} {formatTimestamp(summary.startedAt)}
+              {summary.finishedAt ? ` · finished ${formatTimestamp(summary.finishedAt)}` : ''}  {tx("· app")}{' '}
               {summary.appVersion}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded transition" aria-label="Close">
+          <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded transition" aria-label={tx("Close")}>
             <X size={20} />
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-5">
-          <Section title="Config">
+          <Section title={tx("Config")}>
             <pre className="text-[11px] bg-surface rounded p-3 overflow-auto max-h-64 text-content-secondary font-mono">
               {JSON.stringify(summary.config, null, 2)}
             </pre>
             <p className="text-xs text-content-muted font-mono">hash {summary.configHash}</p>
           </Section>
 
-          <Section title="Reference">
+          <Section title={tx("Reference")}>
             <p className="text-sm text-content-secondary">
               {summary.reference.frameId != null
                 ? `Frame #${summary.reference.frameId} · ${summary.reference.filename ?? 'unknown filename'}`
-                : 'No reference frame recorded'}
+                : tx("No reference frame recorded")}
               {' · '}
-              {summary.reference.mode === 'manual' ? 'manual selection' : 'auto (highest weight)'}
+              {summary.reference.mode === 'manual' ? tx("manual selection") : tx("auto (highest weight)")}
               {summary.reference.weight != null ? ` · weight ${summary.reference.weight.toFixed(3)}` : ''}
               {/* M4a Task 4 (ruling R-M4a-5): stage 5's dry pass re-picked
                *  the reference, so the frame above is NOT the one the
@@ -101,27 +102,26 @@ export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
                 : ''}
             </p>
             <p className="text-xs text-content-muted">
-              Seed source: {summary.measurement.seedSource} · scale estimator: {summary.measurement.scaleEstimator}
+              {tx("Seed source:")} {summary.measurement.seedSource}  {tx("· scale estimator:")} {summary.measurement.scaleEstimator}
             </p>
           </Section>
 
-          <Section title="Groups and frames">
+          <Section title={tx("Groups and frames")}>
             {summary.groups.length === 0 ? (
-              <p className="text-sm text-content-muted">No groups.</p>
+              <p className="text-sm text-content-muted">{tx("No groups.")}</p>
             ) : (
               <div className="space-y-2">
                 {summary.groups.map((g) => (
                   <details key={g.key} className="border border-border rounded-lg">
                     <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-mono">
-                      {g.key} — {g.includedCount}/{g.frameCount} included
-                    </summary>
+                      {g.key} — {g.includedCount}/{g.frameCount}  {tx("included")}</summary>
                     <div className="px-3 pb-3 overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="text-content-muted text-left border-b border-border">
-                            <th className="py-1 px-2 font-medium">Filename</th>
-                            <th className="py-1 px-2 font-medium">Included</th>
-                            <th className="py-1 px-2 font-medium">Cached</th>
+                            <th className="py-1 px-2 font-medium">{tx("Filename")}</th>
+                            <th className="py-1 px-2 font-medium">{tx("Included")}</th>
+                            <th className="py-1 px-2 font-medium">{tx("Cached")}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -131,7 +131,7 @@ export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
                                 {f.filename}
                               </td>
                               <td className="py-1 px-2 text-content-secondary">
-                                {f.included ? 'yes' : (f.exclusionReason ?? 'no')}
+                                {f.included ? tx("yes") : (f.exclusionReason ?? 'no')}
                               </td>
                               <td className="py-1 px-2">
                                 <CachedFlags frame={f} />
@@ -147,9 +147,9 @@ export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
             )}
           </Section>
 
-          <Section title="Stage timings">
+          <Section title={tx("Stage timings")}>
             {summary.stages.length === 0 ? (
-              <p className="text-sm text-content-muted">No stage timings recorded.</p>
+              <p className="text-sm text-content-muted">{tx("No stage timings recorded.")}</p>
             ) : (
               <table className="w-full text-xs max-w-sm">
                 <tbody>
@@ -164,9 +164,9 @@ export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
             )}
           </Section>
 
-          <Section title="Warnings">
+          <Section title={tx("Warnings")}>
             {summary.warnings.length === 0 ? (
-              <p className="text-sm text-content-muted">None.</p>
+              <p className="text-sm text-content-muted">{tx("None.")}</p>
             ) : (
               <ul className="list-disc list-inside text-sm text-warning space-y-0.5">
                 {summary.warnings.map((w, i) => (
@@ -176,11 +176,11 @@ export function ProvenanceModal({ summary, onClose }: ProvenanceModalProps) {
             )}
           </Section>
 
-          <Section title="Error">
+          <Section title={tx("Error")}>
             {summary.error ? (
               <p className="text-sm text-error">{summary.error}</p>
             ) : (
-              <p className="text-sm text-content-muted">None.</p>
+              <p className="text-sm text-content-muted">{tx("None.")}</p>
             )}
           </Section>
         </div>

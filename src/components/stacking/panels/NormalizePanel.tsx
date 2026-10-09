@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 6 (Normalize) inspector panel: global output/rejection
 // normalization + scale estimator, and the local-normalization (LN) block
 // (M2 Task 8 — live). The rejection-normalization select's `local` option is
@@ -38,6 +39,7 @@ export interface NormalizePanelProps {
 }
 
 export function NormalizePanel({ config, onChange, disabled, defaults }: NormalizePanelProps) {
+  const { tx } = useI18n();
   const n = config.normalization;
 
   const [resetNotice, setResetNotice] = useState(false);
@@ -74,7 +76,7 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Output normalization</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Output normalization")}</label>
         <select
           value={n.output}
           disabled={disabled}
@@ -82,14 +84,14 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {OUTPUT_NORMS.map((v) => (
-            <option key={v} value={v}>{outputNormLabel(v)}</option>
+            <option key={v} value={v}>{tx(outputNormLabel(v))}</option>
           ))}
         </select>
-        <p className="mt-1 text-[11px] text-content-muted">default {outputNormLabel(defaults.normalization.output)}</p>
+        <p className="mt-1 text-[11px] text-content-muted">{tx("default")} {tx(outputNormLabel(defaults.normalization.output))}</p>
       </div>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Rejection normalization</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Rejection normalization")}</label>
         <select
           value={n.rejection}
           disabled={disabled}
@@ -98,18 +100,18 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
         >
           {REJECTION_NORMS.map((v) => (
             <option key={v} value={v} disabled={v === 'local' && !n.local.enabled}>
-              {rejectionNormLabel(v)}
+              {tx(rejectionNormLabel(v))}
             </option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {rejectionNormLabel(defaults.normalization.rejection)}
+          {tx("default")} {tx(rejectionNormLabel(defaults.normalization.rejection))}
           {!n.local.enabled && ' — "local" needs local normalization enabled below'}
         </p>
       </div>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Scale estimator</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Scale estimator")}</label>
         <select
           value={n.scaleEstimator}
           disabled={disabled}
@@ -121,13 +123,13 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {defaults.normalization.scaleEstimator.toUpperCase()} — kept equal to the Measure stage's own
+          {tx("default")} {defaults.normalization.scaleEstimator.toUpperCase()} — kept equal to the Measure stage's own
           estimator.
         </p>
       </div>
 
       <div className="pt-3 border-t border-border/60 space-y-2">
-        <h4 className="text-xs font-medium text-content-secondary">Local normalization</h4>
+        <h4 className="text-xs font-medium text-content-secondary">{tx("Local normalization")}</h4>
 
         <label className="flex items-center gap-2 cursor-pointer">
           <input
@@ -137,12 +139,12 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
             onChange={(e) => handleLocalEnabledChange(e.target.checked)}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Enable local normalization</span>
+          <span className="text-sm text-content-secondary">{tx("Enable local normalization")}</span>
         </label>
 
         {resetNotice && (
           <p className="text-xs text-warning">
-            Rejection normalization reset to {rejectionNormLabel('scaleZeroOffset')} — "local" needs local
+            {tx("Rejection normalization reset to")} {tx(rejectionNormLabel('scaleZeroOffset'))} — "local" needs local
             normalization enabled.
           </p>
         )}
@@ -167,7 +169,7 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
             />
 
             <div>
-              <label className="block text-xs text-content-secondary mb-1">PSF model</label>
+              <label className="block text-xs text-content-secondary mb-1">{tx("PSF model")}</label>
               <select
                 value={n.local.psfModel}
                 disabled={disabled}
@@ -175,11 +177,11 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
                 className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
               >
                 {PSF_MODELS.map((v) => (
-                  <option key={v} value={v}>{psfModelLabel(v)}</option>
+                  <option key={v} value={v}>{tx(psfModelLabel(v))}</option>
                 ))}
               </select>
               <p className="mt-1 text-[11px] text-content-muted">
-                default {psfModelLabel(defaults.normalization.local.psfModel)}
+                {tx("default")} {tx(psfModelLabel(defaults.normalization.local.psfModel))}
               </p>
             </div>
 
@@ -192,11 +194,10 @@ export function NormalizePanel({ config, onChange, disabled, defaults }: Normali
                   onChange={(e) => patchLocal({ localScale: e.target.checked })}
                   className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
                 />
-                <span className="text-sm text-content-secondary">Local scale</span>
+                <span className="text-sm text-content-secondary">{tx("Local scale")}</span>
               </label>
               <p className="mt-1 text-[11px] text-content-muted">
-                Model the flux scale as a smooth surface (matched-star flux ratios, thin-plate spline)
-              </p>
+                {tx("Model the flux scale as a smooth surface (matched-star flux ratios, thin-plate spline)")}</p>
             </div>
           </div>
         )}

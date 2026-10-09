@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 1 (Calibrate) inspector panel: a read-only readiness readout off
 // `plan.readiness` (masters resolved / unlinked lights / missing master
 // files) plus the three light-calibration options the Export tab already
@@ -14,6 +15,7 @@ export interface CalibratePanelProps {
 }
 
 export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePanelProps) {
+  const { tx } = useI18n();
   const cal = config.calibration;
   const readiness = plan?.readiness;
 
@@ -24,26 +26,23 @@ export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePa
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-xs font-medium text-content-secondary mb-1.5">Masters resolved</h4>
+        <h4 className="text-xs font-medium text-content-secondary mb-1.5">{tx("Masters resolved")}</h4>
         {readiness ? (
           <ul className="space-y-1 text-xs text-content-muted">
             <li>
               <span className="text-content-secondary tabular-nums">
                 {readiness.total - readiness.unlinkedLights}/{readiness.total}
               </span>{' '}
-              lights have calibration links
-            </li>
+              {tx("lights have calibration links")}</li>
             <li>
               <span className="text-content-secondary tabular-nums">{readiness.rawSetsWithoutMaster}</span>{' '}
-              calibration set(s) without a built master
-            </li>
+              {tx("calibration set(s) without a built master")}</li>
             <li>
               <span className="text-content-secondary tabular-nums">{readiness.missingMasterFiles}</span>{' '}
-              master file(s) missing on disk
-            </li>
+              {tx("master file(s) missing on disk")}</li>
           </ul>
         ) : (
-          <p className="text-xs text-content-muted">No plan loaded yet.</p>
+          <p className="text-xs text-content-muted">{tx("No plan loaded yet.")}</p>
         )}
       </div>
 
@@ -57,7 +56,7 @@ export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePa
               onChange={(e) => patchCalibration({ flatNorm: e.target.checked })}
               className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
             />
-            <span className="text-sm text-content-secondary">Normalize master flat (recommended)</span>
+            <span className="text-sm text-content-secondary">{tx("Normalize master flat (recommended)")}</span>
           </label>
 
           {cal.flatNorm && (
@@ -71,8 +70,7 @@ export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePa
                   onChange={() => patchCalibration({ flatNormMode: 'centralThird' })}
                   className="w-3.5 h-3.5 text-accent border-border focus:ring-accent disabled:opacity-50"
                 />
-                Central third mean (Athenaeum)
-              </label>
+                {tx("Central third mean (Athenaeum)")}</label>
               <label className="flex items-center gap-2 text-xs text-content-secondary cursor-pointer">
                 <input
                   type="radio"
@@ -82,8 +80,7 @@ export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePa
                   onChange={() => patchCalibration({ flatNormMode: 'pixinsightTrimmed' })}
                   className="w-3.5 h-3.5 text-accent border-border focus:ring-accent disabled:opacity-50"
                 />
-                Full-frame trimmed mean
-              </label>
+                {tx("Full-frame trimmed mean")}</label>
             </div>
           )}
         </div>
@@ -96,7 +93,7 @@ export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePa
             onChange={(e) => patchCalibration({ hotPixelCorrection: e.target.checked })}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Hot-pixel correction</span>
+          <span className="text-sm text-content-secondary">{tx("Hot-pixel correction")}</span>
         </label>
 
         <label className="flex items-center gap-2 cursor-pointer">
@@ -107,7 +104,7 @@ export function CalibratePanel({ config, onChange, plan, disabled }: CalibratePa
             onChange={(e) => patchCalibration({ debayerOsc: e.target.checked })}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Debayer OSC lights (VNG)</span>
+          <span className="text-sm text-content-secondary">{tx("Debayer OSC lights (VNG)")}</span>
         </label>
       </div>
     </div>

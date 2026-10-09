@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 5 (Register) inspector panel: the geometry mode (M4b),
 // model/distortion (including the M4c thin-plate spline and its λ, plus
 // the local distortion loop) /interpolation, clamping, star cap, RANSAC
@@ -59,6 +60,7 @@ export interface RegisterPanelProps {
 }
 
 export function RegisterPanel({ config, onChange, disabled, defaults }: RegisterPanelProps) {
+  const { tx } = useI18n();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const r = config.registration;
 
@@ -75,7 +77,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
        *  labels carry the whole explanation and there will never be a
        *  third. */}
       <div>
-        <span className="block text-xs text-content-secondary mb-1">Geometry</span>
+        <span className="block text-xs text-content-secondary mb-1">{tx("Geometry")}</span>
         <div className="space-y-1.5">
           {GEOMETRIES.map((g) => (
             <label key={g.value} className="flex items-start gap-2 cursor-pointer">
@@ -88,17 +90,17 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
                 onChange={() => patch({ geometry: g.value })}
                 className="mt-0.5 w-4 h-4 border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
               />
-              <span className="text-sm text-content-secondary">{g.label}</span>
+              <span className="text-sm text-content-secondary">{tx(g.label)}</span>
             </label>
           ))}
         </div>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {defaults.registration.geometry === 'native' ? 'Native' : 'Co-registered'}
+          {tx("default")} {defaults.registration.geometry === 'native' ? tx("Native") : tx("Co-registered")}
         </p>
       </div>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Model</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Model")}</label>
         <select
           value={r.model}
           disabled={disabled}
@@ -106,14 +108,14 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {MODELS.map((v) => (
-            <option key={v} value={v}>{modelLabel(v)}</option>
+            <option key={v} value={v}>{tx(modelLabel(v))}</option>
           ))}
         </select>
-        <p className="mt-1 text-[11px] text-content-muted">default {modelLabel(defaults.registration.model)}</p>
+        <p className="mt-1 text-[11px] text-content-muted">{tx("default")} {tx(modelLabel(defaults.registration.model))}</p>
       </div>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Distortion</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Distortion")}</label>
         <select
           value={r.distortion}
           disabled={disabled}
@@ -121,11 +123,11 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {DISTORTIONS.map((v) => (
-            <option key={v} value={v}>{distortionLabel(v)}</option>
+            <option key={v} value={v}>{tx(distortionLabel(v))}</option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {distortionLabel(defaults.registration.distortion)}
+          {tx("default")} {tx(distortionLabel(defaults.registration.distortion))}
         </p>
       </div>
 
@@ -134,7 +136,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
        *  spline selected. */}
       {r.distortion === 'tps' && (
         <NumericField
-          label="TPS smoothing (λ)"
+          label={tx("TPS smoothing (λ)")}
           value={r.tpsSmoothing}
           onCommit={(n) => patch({ tpsSmoothing: n })}
           min={0}
@@ -164,13 +166,12 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
             r.distortion === 'off' ? 'text-content-muted' : 'text-content-secondary'
           }`}
         >
-          Local distortion loop
-          {r.distortion === 'off' ? ' (needs a distortion model)' : ''}
+          {tx("Local distortion loop")}{r.distortion === 'off' ? ' (needs a distortion model)' : ''}
         </span>
       </label>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Interpolation</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Interpolation")}</label>
         <select
           value={r.interpolation}
           disabled={disabled}
@@ -178,16 +179,16 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {INTERPOLATIONS.map((v) => (
-            <option key={v} value={v}>{interpolationLabel(v)}</option>
+            <option key={v} value={v}>{tx(interpolationLabel(v))}</option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {interpolationLabel(defaults.registration.interpolation)}
+          {tx("default")} {tx(interpolationLabel(defaults.registration.interpolation))}
         </p>
       </div>
 
       <NumericField
-        label="Clamping threshold"
+        label={tx("Clamping threshold")}
         value={r.clampingThreshold}
         onCommit={(n) => patch({ clampingThreshold: n })}
         min={0}
@@ -198,7 +199,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
       />
 
       <NumericField
-        label="Max stars"
+        label={tx("Max stars")}
         value={r.maxStars}
         onCommit={(n) => patch({ maxStars: Math.round(n) })}
         min={1}
@@ -208,7 +209,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
       />
 
       <NumericField
-        label="RANSAC tolerance (px)"
+        label={tx("RANSAC tolerance (px)")}
         value={r.ransacTolerancePx}
         onCommit={(n) => patch({ ransacTolerancePx: n })}
         min={0}
@@ -218,7 +219,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
       />
 
       <NumericField
-        label="RANSAC max iterations"
+        label={tx("RANSAC max iterations")}
         value={r.ransacMaxIterations}
         onCommit={(n) => patch({ ransacMaxIterations: Math.round(n) })}
         min={1}
@@ -228,7 +229,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
       />
 
       <NumericField
-        label="Max RMS (px)"
+        label={tx("Max RMS (px)")}
         value={r.maxRmsPx}
         onCommit={(n) => patch({ maxRmsPx: n })}
         min={0}
@@ -245,7 +246,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
           onChange={(e) => patch({ failOnMaxRms: e.target.checked })}
           className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
         />
-        <span className="text-sm text-content-secondary">Fail the frame when max RMS is exceeded</span>
+        <span className="text-sm text-content-secondary">{tx("Fail the frame when max RMS is exceeded")}</span>
       </label>
 
       <label className="flex items-center gap-2 cursor-pointer">
@@ -256,7 +257,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
           onChange={(e) => patch({ writeRegisteredFrames: e.target.checked })}
           className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
         />
-        <span className="text-sm text-content-secondary">Write registered frames</span>
+        <span className="text-sm text-content-secondary">{tx("Write registered frames")}</span>
       </label>
 
       <div className="pt-2 border-t border-border/60">
@@ -267,8 +268,7 @@ export function RegisterPanel({ config, onChange, disabled, defaults }: Register
           className="flex items-center gap-1.5 text-xs font-medium text-content-secondary hover:text-content transition-colors"
         >
           {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          Advanced
-        </button>
+          {tx("Advanced")}</button>
         {advancedOpen && (
           <div className="mt-2 ml-1">
             <ParamPair

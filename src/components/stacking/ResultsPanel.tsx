@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Copy, Check, FolderOpen, Loader2, SquareStack, Trash2 } from 'lucide-react';
 import { api } from '../../api';
@@ -78,10 +79,11 @@ function parseGroupStats(raw: string | null): GroupStats | null {
  *  `DualPaneFileBrowser.tsx`, `MonitoredInspector.tsx`,
  *  `ArchiveInspector.tsx`). */
 function RevealOrPath({ path }: { path: string | null }) {
+  const { tx } = useI18n();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
-  if (!path) return <span className="text-xs text-content-muted">no master file yet</span>;
+  if (!path) return <span className="text-xs text-content-muted">{tx("no master file yet")}</span>;
 
   if (isTauri) {
     return (
@@ -90,8 +92,7 @@ function RevealOrPath({ path }: { path: string | null }) {
         onClick={() => void revealItemInDir(path).catch((e) => console.error('[ResultsPanel] revealItemInDir failed:', e))}
         className="flex items-center gap-1 text-xs text-content-secondary hover:text-accent transition-colors"
       >
-        <FolderOpen size={12} /> Reveal
-      </button>
+        <FolderOpen size={12} />  {tx("Reveal")}</button>
     );
   }
 
@@ -133,7 +134,7 @@ function RevealOrPath({ path }: { path: string | null }) {
       <button
         type="button"
         onClick={() => void handleCopy()}
-        title={copyFailed ? 'Copy failed — select the path and copy manually' : 'Copy path'}
+        title={copyFailed ? tx("Copy failed — select the path and copy manually") : tx("Copy path")}
         className="shrink-0 p-0.5 rounded hover:text-accent transition-colors text-content-muted"
       >
         {copyFailed ? <span className="text-error">!</span> : copied ? <Check size={12} /> : <Copy size={12} />}
@@ -168,10 +169,11 @@ type DrizzleGroupSummary = Pick<SummaryGroup, 'drizzlePath' | 'weightMapPath' | 
  *  URL the hook already fetched eagerly, so the attribute deferred
  *  nothing. */
 function ThumbnailBox({ url, error, label }: { url: string | null; error: string | null; label: string }) {
+  const { tx } = useI18n();
   if (error) {
     return (
       <p className="text-[10px] text-content-muted truncate" title={error}>
-        No preview — {error}
+        {tx("No preview —")} {error}
       </p>
     );
   }
@@ -236,6 +238,7 @@ function MasterCard({
    *  the "skipped" line when the run had it on but this group has no path. */
   drizzleConfigEnabled: boolean;
 }) {
+  const { tx } = useI18n();
   const stats = parseGroupStats(group.statsJson);
   const dstats = drizzleSummary?.drizzle ?? null;
 
@@ -285,8 +288,7 @@ function MasterCard({
       )}
 
       <p className="text-xs text-content-secondary tabular-nums">
-        {group.includedCount} frames
-        {groupReferenceFrameId != null && ` · reference #${groupReferenceFrameId}`}
+        {group.includedCount}  {tx("frames")}{groupReferenceFrameId != null && ` · reference #${groupReferenceFrameId}`}
       </p>
 
       {/* Fix round 1, Important #7: omit the stats line entirely when
@@ -298,9 +300,9 @@ function MasterCard({
         <p className="text-xs text-content-secondary tabular-nums">
           {((stats.rejectedLowFraction + stats.rejectedHighFraction) * 100).toFixed(3)}% rejected
           {' · '}
-          {stats.masterNoise.length > 0 ? `noise ${stats.masterNoise[0].toExponential(3)}` : 'noise —'}
+          {stats.masterNoise.length > 0 ? `noise ${stats.masterNoise[0].toExponential(3)}` : tx("noise —")}
           {' · '}
-          {stats.snrGain.length > 0 ? `SNR gain ${stats.snrGain[0].toFixed(2)}×` : 'SNR gain —'}
+          {stats.snrGain.length > 0 ? `SNR gain ${stats.snrGain[0].toFixed(2)}×` : tx("SNR gain —")}
           {/* M4c Task 3: only when the large-scale second pass actually
            *  ran — `null` means it was off, or it was asked for and could
            *  not run (the run's warnings say so), and a "0.000%" line
@@ -325,10 +327,9 @@ function MasterCard({
             {/* A6: `stats.lnFrames` is absent (not just falsy-zero) on a
              *  legacy pre-M2 `stats_json` row — render "—", never
              *  "undefined". */}
-            LN: {typeof stats?.lnFrames === 'number' ? stats.lnFrames : '—'}/{group.includedCount} frames
-          </p>
+            {tx("LN:")} {typeof stats?.lnFrames === 'number' ? stats.lnFrames : '—'}/{group.includedCount}  {tx("frames")}</p>
           <div className="flex items-center gap-1.5 text-xs text-content-muted">
-            <span>LN reference:</span>
+            <span>{tx("LN reference:")}</span>
             <RevealOrPath path={lnReferencePath} />
           </div>
         </div>
@@ -340,19 +341,19 @@ function MasterCard({
       {group.drizzlePath != null ? (
         <div className="pt-1 border-t border-border/40 space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-content-muted">
-            <span>Drizzle {dstats?.scale ?? '?'}×:</span>
+            <span>{tx("Drizzle")} {dstats?.scale ?? '?'}×:</span>
             <RevealOrPath path={group.drizzlePath} />
           </div>
           {dstats && (
             <p className="text-xs text-content-secondary tabular-nums">
               FWHM {dstats.fwhmPx.map((v) => v.toFixed(2)).join(' / ')} px
               {' · '}
-              coverage {dstats.coverage.map((c) => `${(c * 100).toFixed(1)}%`).join(' / ')}
+              {tx("coverage")} {dstats.coverage.map((c) => `${(c * 100).toFixed(1)}%`).join(' / ')}
             </p>
           )}
           {drizzleSummary?.weightMapPath != null && (
             <div className="flex items-center gap-1.5 text-xs text-content-muted">
-              <span>Weight map:</span>
+              <span>{tx("Weight map:")}</span>
               <RevealOrPath path={drizzleSummary.weightMapPath} />
             </div>
           )}
@@ -360,8 +361,7 @@ function MasterCard({
       ) : (
         drizzleConfigEnabled && (
           <p className="pt-1 border-t border-border/40 text-xs text-content-muted">
-            Drizzle: skipped — see warnings
-          </p>
+            {tx("Drizzle: skipped — see warnings")}</p>
         )
       )}
 
@@ -392,6 +392,7 @@ export interface ResultsPanelProps {
  *  own runs/detail/usage fetching — the same self-contained-fetch pattern
  *  Task 3's `OutputPanel` used for `get_stacking_paths`. */
 export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: ResultsPanelProps) {
+  const { tx } = useI18n();
   const { notify } = useNotifications();
   const { lastOutcome } = useStackingContext();
 
@@ -523,7 +524,7 @@ export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: Resu
   return (
     <div className="bg-surface-elevated rounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h4 className="text-sm font-medium text-content">Results</h4>
+        <h4 className="text-sm font-medium text-content">{tx("Results")}</h4>
 
         {runs && runs.length > 0 && (
           <div className="relative">
@@ -543,23 +544,22 @@ export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: Resu
         )}
       </div>
 
-      {runsError && <p className="text-sm text-error">Failed to load run history: {runsError}</p>}
+      {runsError && <p className="text-sm text-error">{tx("Failed to load run history:")} {runsError}</p>}
 
       {runs == null && !runsError && (
         <div className="flex items-center gap-2 text-sm text-content-muted py-4">
-          <Loader2 size={14} className="animate-spin" /> Loading run history…
-        </div>
+          <Loader2 size={14} className="animate-spin" />  {tx("Loading run history…")}</div>
       )}
 
       {runs != null && runs.length === 0 && (
-        <p className="text-sm text-content-muted py-2">No runs yet.</p>
+        <p className="text-sm text-content-muted py-2">{tx("No runs yet.")}</p>
       )}
 
       {selectedRun && runDetail && (
         <>
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-content-muted">
-              {runDetail.groups.length} group{runDetail.groups.length === 1 ? '' : 's'}
+              {runDetail.groups.length}  {tx("group")}{runDetail.groups.length === 1 ? '' : tx("s")}
               {runDetail.run.error ? ` · ${runDetail.run.error}` : ''}
               {/* The run's resolved reference, and — when stage 5's
                *  two-pass pick moved it (M4a Task 4, ruling R-M4a-5) — the
@@ -580,15 +580,14 @@ export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: Resu
               type="button"
               onClick={() => setProvenanceOpen(true)}
               disabled={!runDetail.summary}
-              title={runDetail.summary ? undefined : 'Provenance is available once the run finishes'}
+              title={runDetail.summary ? undefined : tx("Provenance is available once the run finishes")}
               className={`text-xs font-medium transition-colors ${
                 runDetail.summary
                   ? 'text-accent hover:text-accent-hover'
                   : 'text-content-muted cursor-not-allowed'
               }`}
             >
-              Provenance
-            </button>
+              {tx("Provenance")}</button>
           </div>
 
           {runDetail.groups.length > 0 ? (
@@ -614,7 +613,7 @@ export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: Resu
               })}
             </div>
           ) : (
-            <p className="text-sm text-content-muted">This run has no groups yet.</p>
+            <p className="text-sm text-content-muted">{tx("This run has no groups yet.")}</p>
           )}
         </>
       )}
@@ -640,8 +639,7 @@ export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: Resu
           }`}
         >
           <Trash2 size={12} />
-          Delete intermediates
-        </button>
+          {tx("Delete intermediates")}</button>
       </div>
 
       {provenanceOpen && runDetail?.summary && (
@@ -650,9 +648,9 @@ export function ResultsPanel({ setId, running, onSelectedRunDetailChange }: Resu
 
       <ConfirmDialog
         isOpen={confirmCleanupOpen}
-        title="Delete stacking intermediates?"
+        title={tx("Delete stacking intermediates?")}
         message="Removes this set's registered, calibrated and local-normalization working files — the reproducible stage output. Run manifests and master lights are kept. This cannot be undone."
-        confirmText={cleaning ? 'Deleting…' : 'Delete intermediates'}
+        confirmText={cleaning ? tx("Deleting…") : tx("Delete intermediates")}
         confirmDanger
         onConfirm={() => { if (!cleaning) void handleCleanup(); }}
         onCancel={() => { if (!cleaning) setConfirmCleanupOpen(false); }}

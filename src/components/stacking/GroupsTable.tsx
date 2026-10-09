@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import type { PlanGroup } from '../../types/stacking';
 
 function formatExposure(totalExposureS: number): string {
@@ -53,8 +54,9 @@ export interface GroupsTableProps {
 
 /** Read-only summary of the plan's frame groups (spec §11.1). */
 export function GroupsTable({ groups }: GroupsTableProps) {
+  const { tx } = useI18n();
   if (groups.length === 0) {
-    return <p className="text-sm text-content-muted px-1">No groups yet.</p>;
+    return <p className="text-sm text-content-muted px-1">{tx("No groups yet.")}</p>;
   }
 
   return (
@@ -62,16 +64,16 @@ export function GroupsTable({ groups }: GroupsTableProps) {
       <table className="w-full text-xs">
         <thead>
           <tr className="text-content-muted text-left border-b border-border">
-            <th className="py-1.5 px-2 font-medium">Key</th>
-            <th className="py-1.5 px-2 font-medium">Camera</th>
-            <th className="py-1.5 px-2 font-medium">Colour</th>
-            <th className="py-1.5 px-2 font-medium">Filter</th>
-            <th className="py-1.5 px-2 font-medium">Bin</th>
-            <th className="py-1.5 px-2 font-medium">Scale</th>
-            <th className="py-1.5 px-2 font-medium">Exp</th>
-            <th className="py-1.5 px-2 font-medium">Frames</th>
-            <th className="py-1.5 px-2 font-medium">Exposure</th>
-            <th className="py-1.5 px-2 font-medium">Cached</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Key")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Camera")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Colour")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Filter")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Bin")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Scale")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Exp")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Frames")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Exposure")}</th>
+            <th className="py-1.5 px-2 font-medium">{tx("Cached")}</th>
           </tr>
         </thead>
         <tbody>
@@ -82,7 +84,7 @@ export function GroupsTable({ groups }: GroupsTableProps) {
               <tr key={g.key} className="border-b border-border/50 last:border-0">
                 <td className="py-1.5 px-2 text-content font-mono">{g.key}</td>
                 <td className="py-1.5 px-2 text-content-secondary">{g.cameras.length > 0 ? g.cameras.join(' + ') : '—'}</td>
-                <td className="py-1.5 px-2 text-content-secondary">{g.colorMode === 'osc' ? 'OSC' : 'Mono'}</td>
+                <td className="py-1.5 px-2 text-content-secondary">{g.colorMode === 'osc' ? 'OSC' : tx("Mono")}</td>
                 <td className="py-1.5 px-2 text-content-secondary">{g.filter ?? '—'}</td>
                 <td className="py-1.5 px-2 text-content-secondary tabular-nums">{g.binning}×{g.binning}</td>
                 <td className="py-1.5 px-2 text-content-secondary tabular-nums" title={scale.title}>
@@ -95,8 +97,7 @@ export function GroupsTable({ groups }: GroupsTableProps) {
                 <td className="py-1.5 px-2 text-content-secondary tabular-nums">{g.includedCount}/{g.frameCount}</td>
                 <td className="py-1.5 px-2 text-content-secondary tabular-nums">{formatExposure(g.totalExposureS)}</td>
                 <td className="py-1.5 px-2 text-content-muted tabular-nums">
-                  {g.calibratedCached} calibrated · {g.metricsCached} metrics
-                </td>
+                  {g.calibratedCached}  {tx("calibrated ·")} {g.metricsCached}  {tx("metrics")}</td>
               </tr>
             );
           })}

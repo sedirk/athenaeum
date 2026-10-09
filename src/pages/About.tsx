@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n/I18nContext';
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { HistoryNav } from '../components/HistoryNav';
@@ -5,6 +6,7 @@ import { openUrl } from '../api/desktop';
 import { isTauri } from '../utils/platform';
 import { RefreshCw, Download, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react';
 import { useUpdates } from '../contexts/UpdatesContext';
+import { COMMUNITY_VERSION, COMMUNITY_RELEASES } from '../api/communityUpdates';
 
 interface Dependency {
   name: string;
@@ -40,6 +42,7 @@ const backendDeps: Dependency[] = [
 ];
 
 function UpdateSection() {
+  const { tx } = useI18n();
   const { check, checking, checkError, runCheck, openAvailable, openReleaseNotes } = useUpdates();
   const [params, setParams] = useSearchParams();
   const ran = useRef(false);
@@ -58,14 +61,14 @@ function UpdateSection() {
 
   return (
     <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-4">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">Updates</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("Updates")}</h2>
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-content-secondary">Athenaeum v{__APP_VERSION__}</span>
+        <span className="text-content-secondary">Athenaeum v{COMMUNITY_VERSION}</span>
         <button onClick={() => void runCheck()} disabled={checking} className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent-hover rounded-lg transition disabled:opacity-50 text-sm">
           <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
-          {checking ? 'Checking…' : 'Check for updates'}
+          {checking ? tx("Checking…") : tx("Check for updates")}
         </button>
-        <button onClick={() => void openReleaseNotes()} className="text-accent hover:underline">View release notes</button>
+        <button onClick={() => void openReleaseNotes()} className="text-accent hover:underline">{tx("View release notes")}</button>
       </div>
       {checkError && (
         <div className="flex items-start gap-2 p-3 bg-error/10 border border-error/40 rounded-lg text-sm text-error">
@@ -74,14 +77,14 @@ function UpdateSection() {
       )}
       {check && !check.isUpdateAvailable && (
         <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/40 rounded-lg text-sm text-success">
-          <CheckCircle2 size={15} /> You're up to date (v{check.currentVersion}).
+          <CheckCircle2 size={15} />  {tx("You're up to date (v")}{check.currentVersion}).
         </div>
       )}
       {check && check.isUpdateAvailable && (
         <div className="flex items-center justify-between p-3 bg-accent/10 border border-accent/40 rounded-lg text-sm">
-          <span className="flex items-center gap-2 font-semibold text-accent"><Info size={15} /> Version {check.latestVersion} is available</span>
+          <span className="flex items-center gap-2 font-semibold text-accent"><Info size={15} />  {tx("Version")} {check.latestVersion}  {tx("is available")}</span>
           <button onClick={openAvailable} className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent-hover rounded-lg text-sm">
-            <Download size={14} /> {check.platformSupported ? 'Install' : 'Details'}
+            <Download size={14} /> {check.platformSupported ? tx("Install") : tx("Details")}
           </button>
         </div>
       )}
@@ -110,13 +113,14 @@ function ExtLink({ href, children }: { href: string; children: React.ReactNode }
 }
 
 function DependencyTable({ deps }: { deps: Dependency[] }) {
+  const { tx } = useI18n();
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="text-left text-content-muted border-b border-border">
-          <th className="pb-2 font-medium">Library</th>
-          <th className="pb-2 font-medium">License</th>
-          <th className="pb-2 font-medium">Copyright</th>
+          <th className="pb-2 font-medium">{tx("Library")}</th>
+          <th className="pb-2 font-medium">{tx("License")}</th>
+          <th className="pb-2 font-medium">{tx("Copyright")}</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border/50">
@@ -135,31 +139,34 @@ function DependencyTable({ deps }: { deps: Dependency[] }) {
 }
 
 export default function About() {
+  const { tx } = useI18n();
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-10">
       <div className="relative text-center py-6">
         <HistoryNav className="absolute left-0 top-6" />
         <h1 className="text-4xl font-medium text-success font-antiqua tracking-widest">ATHENAEUM</h1>
         <p className="text-content-muted text-sm mt-2 font-mono">
-          v{__APP_VERSION__} ({__GIT_COMMIT__})
+          v{COMMUNITY_VERSION} ({__GIT_COMMIT__})
         </p>
       </div>
 
       <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">About</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("About")}</h2>
         <p className="text-content-secondary leading-relaxed">
-          Athenaeum is a desktop catalog for astrophotography image files. It extracts metadata
-          from FITS and XISF files, automatically groups frames into sets by sky coordinates,
-          manages calibration frame matching and provides export tools for organizing your
-          imaging library.
-        </p>
+          {tx("Athenaeum is a desktop catalog for astrophotography image files. It extracts metadata from FITS and XISF files, automatically groups frames into sets by sky coordinates, manages calibration frame matching and provides export tools for organizing your imaging library.")}</p>
       </section>
 
       <UpdateSection />
 
+      <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("English / 简体中文 · Community edition")}</h2>
+        <p className="text-content-secondary">{tx("Community updates are checked on GitHub and installed manually. Official upstream updates will not replace this bilingual build.")}</p>
+        <ExtLink href={COMMUNITY_RELEASES}>{tx("Bilingual releases")}</ExtLink>
+      </section>
+
       <div className="grid grid-cols-3 gap-6">
         <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">Creator</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("Creator")}</h2>
           <p className="text-content-secondary">
             Vilen Sharifov
           </p>
@@ -170,9 +177,9 @@ export default function About() {
         </section>
 
         <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">License</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("License")}</h2>
           <p className="text-content-secondary leading-relaxed">
-            Athenaeum is licensed under the{' '}
+            {tx("Athenaeum is licensed under the")}{' '}
             <ExtLink href="https://www.apache.org/licenses/LICENSE-2.0">
               Apache License 2.0
             </ExtLink>
@@ -180,10 +187,9 @@ export default function About() {
         </section>
 
         <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">Support</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("Support")}</h2>
           <p className="text-content-secondary leading-relaxed">
-            If you find Athenaeum useful, consider supporting its development.
-          </p>
+            {tx("If you find Athenaeum useful, consider supporting its development.")}</p>
           <button
             onClick={() => isTauri ? openUrl('https://ko-fi.com/N4N81UR2EE') : window.open('https://ko-fi.com/N4N81UR2EE', '_blank', 'noopener')}
             className="hover:opacity-80 transition-opacity"
@@ -198,10 +204,9 @@ export default function About() {
       </div>
 
       <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">Community</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("Community")}</h2>
         <p className="text-content-secondary leading-relaxed">
-          Join the conversation, share images, ask questions, and follow updates.
-        </p>
+          {tx("Join the conversation, share images, ask questions, and follow updates.")}</p>
         <div className="flex gap-4">
           <ExtLink href="https://discord.gg/WW22RfruPx">Discord</ExtLink>
           <ExtLink href="https://t.me/athenaeum_astro">Telegram</ExtLink>
@@ -209,7 +214,7 @@ export default function About() {
       </section>
 
       <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">Acknowledgements</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("Acknowledgements")}</h2>
         <p className="text-content-secondary leading-relaxed">
           The analysis flow in Athenaeum was guided by{' '}
           <ExtLink href="https://github.com/fenriques/AstroDom">Ferrante Enriques</ExtLink>,
@@ -223,7 +228,7 @@ export default function About() {
         </div>
 
         <div className="pt-4 space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted">Standards &amp; Data</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted">{tx("Standards & Data")}</h3>
           <ul className="space-y-1.5 text-content-secondary text-sm">
             <li>
               <ExtLink href="https://fits.gsfc.nasa.gov/fits_standard.html">FITS</ExtLink>
@@ -249,19 +254,18 @@ export default function About() {
 
       <section className="rounded-lg bg-surface-elevated/60 p-6 space-y-5">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">Third-Party Notices</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-accent">{tx("Third-Party Notices")}</h2>
           <p className="text-content-muted text-sm mt-1">
-            Athenaeum is built with the following open-source libraries.
-          </p>
+            {tx("Athenaeum is built with the following open-source libraries.")}</p>
         </div>
 
         <div>
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted mb-3">Frontend</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted mb-3">{tx("Frontend")}</h3>
             <DependencyTable deps={frontendDeps} />
           </div>
           <div className="mt-10">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted mb-3">Backend</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted mb-3">{tx("Backend")}</h3>
             <DependencyTable deps={backendDeps} />
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 8 (Drizzle) inspector panel (M3 Task 6 — live). Mirrors
 // `NormalizePanel.tsx`'s editing pattern: `patch` merges a partial
 // `DrizzleConfig` into `config.drizzle` and calls `onChange` with the whole
@@ -26,6 +27,7 @@ export interface DrizzlePanelProps {
 }
 
 export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: DrizzlePanelProps) {
+  const { tx } = useI18n();
   const d = config.drizzle;
   const lnOn = config.normalization.local.enabled;
 
@@ -43,7 +45,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-content-secondary mb-1">Scale</label>
+          <label className="block text-xs text-content-secondary mb-1">{tx("Scale")}</label>
           <select
             value={d.scale}
             disabled={disabled}
@@ -54,11 +56,11 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
               <option key={v} value={v}>{v}×</option>
             ))}
           </select>
-          <p className="mt-1 text-[11px] text-content-muted">default {defaults.drizzle.scale}×</p>
+          <p className="mt-1 text-[11px] text-content-muted">{tx("default")} {defaults.drizzle.scale}×</p>
         </div>
 
         <NumericField
-          label="Drop shrink"
+          label={tx("Drop shrink")}
           value={d.dropShrink}
           onCommit={(n) => patch({ dropShrink: n })}
           min={0.5}
@@ -70,7 +72,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
       </div>
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Kernel</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Kernel")}</label>
         <select
           value={d.kernel}
           disabled={disabled}
@@ -78,11 +80,11 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
           className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
         >
           {KERNELS.map((v) => (
-            <option key={v} value={v}>{kernelLabel(v)}</option>
+            <option key={v} value={v}>{tx(kernelLabel(v))}</option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {kernelLabel(defaults.drizzle.kernel)} — square = exact clipping; circle/gaussian = 16×16
+          {tx("default")} {tx(kernelLabel(defaults.drizzle.kernel))} — square = exact clipping; circle/gaussian = 16×16
           tabulated.
         </p>
       </div>
@@ -103,12 +105,10 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
           <span className="text-sm text-content-secondary">
-            Bayer drizzle (deposit each colour's own samples, OSC only)
-          </span>
+            {tx("Bayer drizzle (deposit each colour's own samples, OSC only)")}</span>
         </label>
         <p className="mt-1 ml-6 text-[11px] text-content-muted">
-          R and B cover a quarter of the pixels each — use drop shrink ≥ 0.9 or more frames.
-          {noOscGroup ? ' This set has no OSC group, so it changes nothing.' : ''}
+          {tx("R and B cover a quarter of the pixels each — use drop shrink ≥ 0.9 or more frames.")}{noOscGroup ? ' This set has no OSC group, so it changes nothing.' : ''}
         </p>
         {/* Fix round 1 (I1): with the debayer off, an OSC group's calibrated
          *  frame IS the mosaic and the group is single-plane, so no mosaic is
@@ -117,8 +117,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
          *  discover it there. */}
         {d.bayer && !config.calibration.debayerOsc && (
           <p className="mt-1 ml-6 text-[11px] text-warning">
-            No effect — the OSC debayer is off for this set (Calibrate), so no CFA mosaic is kept.
-          </p>
+            {tx("No effect — the OSC debayer is off for this set (Calibrate), so no CFA mosaic is kept.")}</p>
         )}
       </div>
 
@@ -131,7 +130,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
             onChange={(e) => patch({ useRejection: e.target.checked })}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Use rejection</span>
+          <span className="text-sm text-content-secondary">{tx("Use rejection")}</span>
         </label>
 
         <label className="flex items-center gap-2 cursor-pointer">
@@ -142,7 +141,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
             onChange={(e) => patch({ useWeights: e.target.checked })}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Use weights</span>
+          <span className="text-sm text-content-secondary">{tx("Use weights")}</span>
         </label>
 
         <div>
@@ -154,7 +153,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
               onChange={(e) => patch({ useLocalNormalization: e.target.checked })}
               className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
             />
-            <span className="text-sm text-content-secondary">Use local normalization</span>
+            <span className="text-sm text-content-secondary">{tx("Use local normalization")}</span>
           </label>
           {/* B8 (M3 final fix wave, M5 ruling): the toggle is kept as stored
            *  (never forced off) when LN itself is off for this set — the
@@ -164,8 +163,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
            *  so explicitly rather than leaving the reader to infer it. */}
           {!lnOn && (
             <p className="mt-1 ml-6 text-[11px] text-content-muted">
-              no effect — local normalization is off for this set
-            </p>
+              {tx("no effect — local normalization is off for this set")}</p>
           )}
         </div>
 
@@ -177,16 +175,16 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
             onChange={(e) => patch({ writeWeightMap: e.target.checked })}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Write weight map</span>
+          <span className="text-sm text-content-secondary">{tx("Write weight map")}</span>
         </label>
 
         <p className="text-[11px] text-content-muted">
-          defaults: {defaults.drizzle.scale}×, drop {defaults.drizzle.dropShrink.toFixed(2)},{' '}
-          {kernelLabel(defaults.drizzle.kernel)} kernel, {defaults.drizzle.useRejection ? 'rejection on' : 'rejection off'},{' '}
-          {defaults.drizzle.useWeights ? 'weights on' : 'weights off'},{' '}
-          local normalization {defaults.drizzle.useLocalNormalization ? 'on' : 'off'}, weight map{' '}
-          {defaults.drizzle.writeWeightMap ? 'on' : 'off'}, Bayer{' '}
-          {defaults.drizzle.bayer ? 'on' : 'off'}.
+          {tx("defaults:")} {defaults.drizzle.scale}×, drop {defaults.drizzle.dropShrink.toFixed(2)},{' '}
+          {tx(kernelLabel(defaults.drizzle.kernel))} kernel, {defaults.drizzle.useRejection ? tx("rejection on") : tx("rejection off")},{' '}
+          {defaults.drizzle.useWeights ? tx("weights on") : tx("weights off")},{' '}
+          {tx("local normalization")} {defaults.drizzle.useLocalNormalization ? tx("on") : tx("off")}, weight map{' '}
+          {defaults.drizzle.writeWeightMap ? tx("on") : tx("off")}, Bayer{' '}
+          {defaults.drizzle.bayer ? tx("on") : tx("off")}.
         </p>
       </div>
 
@@ -198,7 +196,7 @@ export function DrizzlePanel({ config, onChange, disabled, defaults, plan }: Dri
             {estimate.incomplete ? ' (some groups without geometry)' : ''}
           </p>
         ) : (
-          <p className="text-[11px] text-content-muted">No plan loaded — estimate unavailable.</p>
+          <p className="text-[11px] text-content-muted">{tx("No plan loaded — estimate unavailable.")}</p>
         )}
       </div>
     </div>

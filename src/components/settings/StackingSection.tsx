@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 // Settings → Stacking (Plan 5b Task 5). Renders inner content only — the
 // host card/heading are supplied by `Settings.tsx`, matching the
 // `TransfersSection` pattern.
@@ -90,6 +91,7 @@ const PRESET_LABEL: Record<StackingPreset, string> = {
 };
 
 export default function StackingSection() {
+  const { tx } = useI18n();
   const { notify } = useNotifications();
 
   const [config, setConfig] = useState<StackingConfig | null>(null);
@@ -333,7 +335,7 @@ export default function StackingSection() {
     return (
       <div className="text-center py-8">
         <Loader2 size={24} className="animate-spin mx-auto mb-2 text-content-muted" />
-        <p className="text-content-muted text-sm">Loading stacking defaults…</p>
+        <p className="text-content-muted text-sm">{tx("Loading stacking defaults…")}</p>
       </div>
     );
   }
@@ -341,7 +343,7 @@ export default function StackingSection() {
   if (loadError || !config || !presets) {
     return (
       <p className="text-sm text-content-muted">
-        Failed to load the stacking defaults{loadError ? `: ${loadError}` : '.'}
+        {tx("Failed to load the stacking defaults")}{loadError ? `: ${loadError}` : '.'}
       </p>
     );
   }
@@ -357,7 +359,7 @@ export default function StackingSection() {
        *  overrides fall back to, not the same thing. */}
       <div>
         <div className="flex items-center justify-between gap-3 mb-2">
-          <h4 className="text-sm font-medium text-content-secondary">Pipeline defaults</h4>
+          <h4 className="text-sm font-medium text-content-secondary">{tx("Pipeline defaults")}</h4>
           <div className="flex items-center gap-2">
             <div className="relative">
               <select
@@ -366,12 +368,12 @@ export default function StackingSection() {
                   if (e.target.value) applyPreset(e.target.value as StackingPreset);
                 }}
                 disabled={resetting}
-                aria-label="Apply a built-in preset"
+                aria-label={tx("Apply a built-in preset")}
                 className="rounded-md border border-border bg-surface-hover px-2 py-1 text-xs text-content-secondary focus:outline-none focus:border-accent disabled:opacity-50"
               >
                 <option value="">{presetLabel} — apply preset…</option>
                 {(Object.keys(PRESET_LABEL) as StackingPreset[]).map((p) => (
-                  <option key={p} value={p}>{PRESET_LABEL[p]}</option>
+                  <option key={p} value={p}>{tx(PRESET_LABEL[p])}</option>
                 ))}
               </select>
             </div>
@@ -382,8 +384,7 @@ export default function StackingSection() {
               className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-content-secondary hover:bg-surface-hover disabled:opacity-50 transition-colors"
             >
               {resetting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-              Reset to built-in defaults
-            </button>
+              {tx("Reset to built-in defaults")}</button>
           </div>
         </div>
 
@@ -402,7 +403,7 @@ export default function StackingSection() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-content-muted tabular-nums w-4">{i + 1}</span>
                     <span className="text-sm font-medium text-content whitespace-nowrap md:whitespace-normal">
-                      {STAGE_LABEL[stage]}
+                      {tx(STAGE_LABEL[stage])}
                     </span>
                   </div>
                   <p className="ml-6 text-xs text-content-muted truncate max-w-[220px] md:max-w-none">
@@ -429,15 +430,14 @@ export default function StackingSection() {
 
       {/* Default folders: what a frame set with no override falls back to. */}
       <div>
-        <h4 className="text-sm font-medium text-content-secondary mb-2">Default folders</h4>
+        <h4 className="text-sm font-medium text-content-secondary mb-2">{tx("Default folders")}</h4>
         <p className="text-xs text-content-muted mb-2">
-          Both folders are saved together — an unavailable folder on the other card fails the save.
-        </p>
+          {tx("Both folders are saved together — an unavailable folder on the other card fails the save.")}</p>
         <div className="space-y-3">
           {paths && (
             <>
               <FolderCard
-                title="Working folder"
+                title={tx("Working folder")}
                 hint="Where a stacking run stages registered/intermediate frames, unless a frame set overrides it."
                 setting={paths.working}
                 onChoose={() => choose('working')}
@@ -446,7 +446,7 @@ export default function StackingSection() {
                 busy={savingPaths}
               />
               <FolderCard
-                title="Output folder"
+                title={tx("Output folder")}
                 hint="Where a stacking run writes its master(s), unless a frame set overrides it."
                 setting={paths.output}
                 onChoose={() => choose('output')}
@@ -457,16 +457,16 @@ export default function StackingSection() {
             </>
           )}
           {!paths && pathsLoadError && (
-            <p className="text-xs text-error">Could not read the stacking folders: {pathsLoadError}</p>
+            <p className="text-xs text-error">{tx("Could not read the stacking folders:")} {pathsLoadError}</p>
           )}
         </div>
       </div>
 
       <ConfirmDialog
         isOpen={confirmResetOpen}
-        title="Reset stacking defaults?"
+        title={tx("Reset stacking defaults?")}
         message="This resets every stacking pipeline setting on this page back to the built-in default. Frame sets with their own override are unaffected. Folders are unaffected."
-        confirmText="Reset"
+        confirmText={tx("Reset")}
         confirmDanger
         onConfirm={() => void handleResetConfirmed()}
         onCancel={() => setConfirmResetOpen(false)}

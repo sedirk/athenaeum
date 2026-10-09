@@ -616,8 +616,7 @@ export default function Settings() {
           }`}
         >
           <SquareStack size={18} />
-          Stacking
-        </button>
+          {tx("Stacking")}</button>
         <button
           onClick={() => setActiveTab('calibration')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg transition-colors ${
@@ -675,8 +674,7 @@ export default function Settings() {
         <div className="mb-6 bg-surface-elevated rounded-lg p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <SquareStack size={20} />
-            Stacking
-          </h3>
+            {tx("Stacking")}</h3>
           <p className="text-xs text-content-muted mb-4">
             Pipeline defaults and the two default folders every frame set uses unless it sets its own.
           </p>
@@ -869,20 +867,9 @@ export default function Settings() {
                   {tx("When enabled, Athenaeum checks for a newer version each time it starts and shows a notification if one is available — on the desktop app and in the web build alike. Disable to only check manually from the About page.")}</span>
               </div>
             </label>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={checkBeta}
-                onChange={(e) => setCheckBeta(e.target.checked)}
-                className="w-5 h-5 rounded border-border bg-surface-hover text-accent focus:ring-2 focus:ring-accent focus:ring-offset-0"
-              />
-              <div>
-                <span className="block text-sm font-medium text-content-secondary">
-                  {tx("Check for beta updates")}</span>
-                <span className="block text-xs text-content-muted mt-1">
-                  {tx("When enabled, the update checker will also look for pre-release (beta) versions. Beta builds may contain new features that are still being tested.")}</span>
-              </div>
-            </label>
+            <p className="text-xs text-content-muted">
+              {tx("Community updates are checked on GitHub and installed manually. Official upstream updates will not replace this bilingual build.")}
+            </p>
           </div>
         </div>
 

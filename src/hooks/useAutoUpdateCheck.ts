@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useI18n } from '../i18n/I18nContext';
 import { api } from '../api';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useUpdates } from '../contexts/UpdatesContext';
@@ -12,6 +13,7 @@ import type { WhatsNew } from '../types/models';
  * Failures are console-only — offline at launch is normal, never a toast.
  */
 export function useAutoUpdateCheck() {
+  const { tx } = useI18n();
   const { notify } = useNotifications();
   const { runCheck, openWhatsNew } = useUpdates();
   const ran = useRef(false);
@@ -33,10 +35,8 @@ export function useAutoUpdateCheck() {
         const info = await runCheck();
         if (info?.isUpdateAvailable) {
           notify({
-            title: `Update available: v${info.latestVersion}`,
-            detail: info.platformSupported
-              ? `You have v${info.currentVersion}. Click to read the notes and install.`
-              : `You have v${info.currentVersion}. Click to read the notes.`,
+            title: tx('Update available: v{version}', { version: info.latestVersion }),
+            detail: tx('You have v{version}. Click to read the notes.', { version: info.currentVersion }),
             tone: 'success',
             kind: 'update',
             link: '/about?update',
@@ -47,5 +47,5 @@ export function useAutoUpdateCheck() {
         console.error('auto update check:', err);
       }
     })();
-  }, [notify, runCheck, openWhatsNew]);
+  }, [notify, runCheck, openWhatsNew, tx]);
 }

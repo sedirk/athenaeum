@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { Circle, CircleDot, CheckCircle2, XCircle, MinusCircle, AlertCircle } from 'lucide-react';
 import type { BoardStage, RowState } from './stageSummary';
 import type { RunProgress } from '../../hooks/useStackingRuns';
@@ -103,6 +104,7 @@ function StateGlyph({ state }: { state: RowState }) {
  *  the glyph/index/label/summary — the toggle and the state chip are
  *  siblings outside it, not descendants. */
 export function StageRow({ index, stage, label, state, summary, progress, selected, onSelect, toggle }: StageRowProps) {
+  const { tx } = useI18n();
   return (
     <div
       data-stage={stage}
@@ -117,7 +119,7 @@ export function StageRow({ index, stage, label, state, summary, progress, select
       >
         <StateGlyph state={state} />
         <span className="w-5 shrink-0 text-xs text-content-muted tabular-nums">{index}</span>
-        <span className="w-40 shrink-0 text-sm font-medium text-content truncate">{label}</span>
+        <span className="w-40 shrink-0 text-sm font-medium text-content truncate">{tx(label)}</span>
 
         <span className="flex-1 min-w-0 text-xs text-content-muted truncate">
           {state === 'running' && progress ? (
@@ -143,7 +145,7 @@ export function StageRow({ index, stage, label, state, summary, progress, select
           className="flex items-center gap-1.5 text-xs text-content-muted shrink-0"
           title={toggle.note}
         >
-          {toggle.label && <span>{toggle.label}</span>}
+          {toggle.label && <span>{tx(toggle.label)}</span>}
           <input
             type="checkbox"
             checked={toggle.checked}
@@ -156,7 +158,7 @@ export function StageRow({ index, stage, label, state, summary, progress, select
       )}
 
       <span className={`w-16 shrink-0 text-right text-xs font-medium ${STATE_CLASSES[state]}`}>
-        {STATE_LABEL[state]}
+        {tx(STATE_LABEL[state])}
       </span>
     </div>
   );

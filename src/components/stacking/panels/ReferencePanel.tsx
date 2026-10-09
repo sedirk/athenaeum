@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 4 (Reference) inspector panel: Auto/Manual mode radio, plus the
 // two-pass pick (M4a Task 4, ruling R-M4a-5) under Auto. Manual mode has no
 // in-tab picker yet (the frame is chosen on the Analysis tab) — this panel
@@ -15,6 +16,7 @@ export interface ReferencePanelProps {
 }
 
 export function ReferencePanel({ config, onChange, plan, disabled }: ReferencePanelProps) {
+  const { tx } = useI18n();
   const navigate = useNavigate();
   const mode = config.reference.mode;
 
@@ -38,7 +40,7 @@ export function ReferencePanel({ config, onChange, plan, disabled }: ReferencePa
             onChange={() => setMode('auto')}
             className="w-3.5 h-3.5 text-accent border-border focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Auto</span>
+          <span className="text-sm text-content-secondary">{tx("Auto")}</span>
         </label>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
@@ -49,7 +51,7 @@ export function ReferencePanel({ config, onChange, plan, disabled }: ReferencePa
             onChange={() => setMode('manual')}
             className="w-3.5 h-3.5 text-accent border-border focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Manual</span>
+          <span className="text-sm text-content-secondary">{tx("Manual")}</span>
         </label>
 
         {/* Ruling R-M4a-5: the two-pass pick applies to Auto only — a manual
@@ -76,8 +78,7 @@ export function ReferencePanel({ config, onChange, plan, disabled }: ReferencePa
 
       {mode === 'auto' ? (
         <p className="text-xs text-content-muted">
-          The best-weighted frame of the largest group, chosen at run time.
-        </p>
+          {tx("The best-weighted frame of the largest group, chosen at run time.")}</p>
       ) : (
         <div className="space-y-2">
           {plan?.reference.filename ? (
@@ -92,15 +93,14 @@ export function ReferencePanel({ config, onChange, plan, disabled }: ReferencePa
               </span>
             </div>
           ) : (
-            <p className="text-xs text-content-muted">No reference frame chosen yet.</p>
+            <p className="text-xs text-content-muted">{tx("No reference frame chosen yet.")}</p>
           )}
           <button
             type="button"
             onClick={() => navigate('?tab=analysis', { replace: true })}
             className="text-xs underline text-content-secondary hover:no-underline"
           >
-            Choose in Analysis
-          </button>
+            {tx("Choose in Analysis")}</button>
         </div>
       )}
     </div>

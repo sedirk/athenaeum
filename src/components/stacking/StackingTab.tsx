@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, Square, ChevronDown, ChevronRight, FolderOpen, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
@@ -84,6 +85,7 @@ function formatGB(bytes: number): string {
 // header above the tab bar already shows it), so it is simply not
 // destructured here.
 export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
+  const { tx } = useI18n();
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const { progress, lastOutcome, startRun, cancelRun, isRunning } = useStackingContext();
@@ -666,7 +668,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
     return (
       <div className="text-center py-12">
         <Loader2 size={28} className="animate-spin mx-auto mb-3 text-content-muted" />
-        <p className="text-content-muted">Loading stacking plan…</p>
+        <p className="text-content-muted">{tx("Loading stacking plan…")}</p>
       </div>
     );
   }
@@ -674,7 +676,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
   if (loadError || !plan || !draftConfig || !presets) {
     return (
       <div className="text-center py-12 text-content-muted">
-        <p>Failed to load the stacking plan{loadError ? `: ${loadError}` : '.'}</p>
+        <p>{tx("Failed to load the stacking plan")}{loadError ? `: ${loadError}` : '.'}</p>
       </div>
     );
   }
@@ -712,7 +714,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
         ? measureCached
           ? 'No calibrated or registered frames are cached — the run starts from Calibrate; the measurements are reused'
           : 'Nothing is cached — the run starts from Calibrate'
-        : `Starts from ${STAGE_LABEL[firstStale]} — the stages before it are reused from cache`;
+        : `Starts from ${tx(STAGE_LABEL[firstStale])} — the stages before it are reused from cache`;
   // Fix round 1, Minor #8: APPLYING a preset edits the config the same way
   // every inspector panel does, so it is disabled while a run is active for
   // the same reason those panels are (`StageInspector`'s own `disabled`
@@ -780,7 +782,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                         : 'text-content-secondary hover:bg-surface-hover'
                     }`}
                   >
-                    {PRESET_LABEL[p]}
+                    {tx(PRESET_LABEL[p])}
                   </button>
                 ))}
 
@@ -809,15 +811,13 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                               onClick={() => void handleDeletePreset(saved.name)}
                               className="px-2 py-0.5 rounded text-xs font-medium bg-error text-white hover:brightness-110 disabled:opacity-50"
                             >
-                              Delete
-                            </button>
+                              {tx("Delete")}</button>
                             <button
                               type="button"
                               onClick={() => setPresetPendingDelete(null)}
                               className="px-2 py-0.5 rounded text-xs text-content-muted hover:text-content"
                             >
-                              Cancel
-                            </button>
+                              {tx("Cancel")}</button>
                           </div>
                         </div>
                       ) : (
@@ -863,7 +863,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                       autoFocus
                       value={presetNameDraft}
                       maxLength={PRESET_NAME_MAX}
-                      placeholder="Preset name"
+                      placeholder={tx("Preset name")}
                       onChange={(e) => setPresetNameDraft(e.target.value)}
                       onKeyDown={(e) => {
                         // Escape is handled by the menu-wide listener; Enter
@@ -883,8 +883,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                         onClick={() => void handleSavePreset()}
                         className="px-2 py-0.5 rounded text-xs font-medium bg-accent text-surface hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Save
-                      </button>
+                        {tx("Save")}</button>
                       <button
                         type="button"
                         onClick={() => {
@@ -893,8 +892,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                         }}
                         className="px-2 py-0.5 rounded text-xs text-content-muted hover:text-content"
                       >
-                        Cancel
-                      </button>
+                        {tx("Cancel")}</button>
                     </div>
                   </div>
                 ) : (
@@ -906,8 +904,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                     }}
                     className="w-full text-left px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover"
                   >
-                    Save current as…
-                  </button>
+                    {tx("Save current as…")}</button>
                 )}
               </div>
             )}
@@ -927,7 +924,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
             <span className="truncate">{plan.outputDir ?? 'Choose an output folder'}</span>
           </span>
           <span className="text-content-muted shrink-0">
-            {freeLabel} · estimate {formatGB(plan.estimateBytes)}
+            {freeLabel}  {tx("· estimate")} {formatGB(plan.estimateBytes)}
           </span>
         </div>
 
@@ -944,8 +941,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
             }`}
           >
             {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            Run stacking
-          </button>
+            {tx("Run stacking")}</button>
 
           {running && (
             <button
@@ -954,8 +950,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-border text-content-secondary hover:bg-surface-hover transition-colors"
             >
               <Square size={14} />
-              Cancel
-            </button>
+              {tx("Cancel")}</button>
           )}
 
           <div className="relative" ref={rerunMenuRef}>
@@ -969,8 +964,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                   : 'border-border text-content-secondary hover:bg-surface-hover'
               }`}
             >
-              Re-run from
-              <ChevronDown size={14} />
+              {tx("Re-run from")}<ChevronDown size={14} />
             </button>
             {rerunMenuOpen && !rerunDisabled && (
               <div className="absolute right-0 mt-1 w-64 bg-surface-elevated border border-border rounded-lg shadow-lg z-10 py-1">
@@ -982,10 +976,10 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                     onClick={() => void handleRerunFrom(stage)}
                     title={
                       stale
-                        ? 'Not cached — every run redoes this stage already'
+                        ? tx("Not cached — every run redoes this stage already")
                         : stage === 'integrate'
                           ? 'Reuse every cached stage and integrate again'
-                          : `Redo ${STAGE_LABEL[stage]} and everything after it; reuse the stages before`
+                          : `Redo ${tx(STAGE_LABEL[stage])} and everything after it; reuse the stages before`
                     }
                     className={`w-full text-left px-3 py-1.5 text-sm ${
                       stale
@@ -994,8 +988,8 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                     }`}
                   >
                     <span className="flex items-center justify-between gap-2">
-                      <span>{STAGE_LABEL[stage]}</span>
-                      {stale && <span className="text-xs">stale</span>}
+                      <span>{tx(STAGE_LABEL[stage])}</span>
+                      {stale && <span className="text-xs">{tx("stale")}</span>}
                     </span>
                   </button>
                 ))}
@@ -1021,8 +1015,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
                   className="underline hover:no-underline text-content-secondary"
                   onClick={handleCoverageClick}
                 >
-                  → Coverage
-                </button>
+                  {tx("→ Coverage")}</button>
               )}
             </div>
           ))}
@@ -1053,7 +1046,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
             onToggleDrizzle={handleToggleDrizzle}
           />
           <div className="bg-surface-elevated rounded-lg p-3">
-            <h4 className="text-sm font-medium text-content mb-2">Groups ({plan.groups.length})</h4>
+            <h4 className="text-sm font-medium text-content mb-2">{tx("Groups (")}{plan.groups.length})</h4>
             <GroupsTable groups={plan.groups} />
           </div>
         </div>
@@ -1072,7 +1065,7 @@ export function StackingTab({ framesSetId, lightFrames }: StackingTabProps) {
             className="lg:hidden w-full flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-surface-elevated text-sm font-medium text-content hover:text-content-secondary transition-colors"
           >
             {inspectorCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-            {STAGE_LABEL[selectedStage]}
+            {tx(STAGE_LABEL[selectedStage])}
           </button>
           <div className={`${inspectorCollapsed ? 'hidden' : 'block'} lg:block`}>
             <StageInspector

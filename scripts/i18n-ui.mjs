@@ -9,7 +9,7 @@ const files = roots.flatMap(p => fs.statSync(p).isDirectory()
   ? fs.readdirSync(p).filter(n => n.endsWith('.tsx')).map(n => path.join(p, n)) : [p]);
 const dictionary = JSON.parse(fs.readFileSync('src/i18n/ui.zh-CN.json', 'utf8'));
 const inventory = new Set();
-const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", deg: '°', middot: '·', rarr: '→', ldquo: '“', rdquo: '”', ndash: '–', mdash: '—', Prime: '″', times: '×', sup2: '²', nbsp: ' ' };
+const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", rsquo: '’', deg: '°', middot: '·', rarr: '→', ldquo: '“', rdquo: '”', ndash: '–', mdash: '—', Prime: '″', times: '×', sup2: '²', nbsp: ' ' };
 const decode = value => value.replace(/&(#\d+|#x[\da-f]+|\w+);/gi, (all, key) => key.startsWith('#x') ? String.fromCodePoint(parseInt(key.slice(2), 16)) : key.startsWith('#') ? String.fromCodePoint(Number(key.slice(1))) : entities[key] ?? all);
 let patch = '*** Begin Patch\n';
 for (const file of files) {

@@ -1,3 +1,4 @@
+import { useI18n } from '../../i18n/I18nContext';
 // The stage inspector's numeric input: the export tab's two-state discipline
 // (`ExportTab.tsx` lines 164–216) — a string draft that survives a partial
 // edit ("0."), committed to the caller only once it parses, and snapped back
@@ -57,6 +58,7 @@ export interface NumericFieldProps {
  * this field inherits it.
  */
 export function NumericField({ label, value, onCommit, min, max, step, help, disabled }: NumericFieldProps) {
+  const { tx } = useI18n();
   const [draft, setDraft] = useState(() => String(value));
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -79,7 +81,7 @@ export function NumericField({ label, value, onCommit, min, max, step, help, dis
   return (
     <div>
       {label && (
-        <label className="block text-xs text-content-secondary mb-1">{label}</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx(label)}</label>
       )}
       <input
         ref={inputRef}
@@ -131,6 +133,7 @@ export function NullableNumericField({
   help,
   disabled,
 }: NullableNumericFieldProps) {
+  const { tx } = useI18n();
   const on = value !== null;
 
   // The last value the user had this field at while it was on, so
@@ -152,7 +155,7 @@ export function NullableNumericField({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-content-secondary">{label}</span>
+        <span className="text-xs text-content-secondary">{tx(label)}</span>
         <label className="flex items-center gap-1.5 text-[11px] text-content-muted cursor-pointer">
           <input
             type="checkbox"
@@ -161,7 +164,7 @@ export function NullableNumericField({
             onChange={(e) => handleToggle(e.target.checked)}
             className="w-3.5 h-3.5 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          {on ? 'On' : 'Off'}
+          {on ? tx("On") : tx("Off")}
         </label>
       </div>
       {on ? (

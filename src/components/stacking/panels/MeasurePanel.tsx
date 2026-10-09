@@ -1,3 +1,4 @@
+import { useI18n } from '../../../i18n/I18nContext';
 // Stage 3 (Measure & select) inspector panel: weight mode, the formula
 // sliders (only meaningful in `formula` mode), PSF model, max stars, the
 // four selection filters and the Re-measure action.
@@ -93,6 +94,7 @@ export function MeasurePanel({
   onRemeasure,
   remeasureDisabled,
 }: MeasurePanelProps) {
+  const { tx } = useI18n();
   const m = config.measurement;
   const sel = config.selection;
   // The peak detector's two dials mean nothing to the structure map, which
@@ -112,7 +114,7 @@ export function MeasurePanel({
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Weight mode</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Weight mode")}</label>
         <select
           value={m.weightMode}
           disabled={disabled}
@@ -121,18 +123,18 @@ export function MeasurePanel({
         >
           {WEIGHT_MODES.map((v) => (
             <option key={v} value={v}>
-              {weightModeLabel(v)}
+              {tx(weightModeLabel(v))}
             </option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {weightModeLabel(defaults.measurement.weightMode)}
+          {tx("default")} {tx(weightModeLabel(defaults.measurement.weightMode))}
         </p>
       </div>
 
       {m.weightMode === 'keyword' && (
         <div>
-          <label className="block text-xs text-content-secondary mb-1">FITS keyword</label>
+          <label className="block text-xs text-content-secondary mb-1">{tx("FITS keyword")}</label>
           <input
             type="text"
             value={m.keyword}
@@ -141,14 +143,14 @@ export function MeasurePanel({
             className="w-full px-2 py-1 text-sm bg-surface text-content rounded border border-border focus:outline-none focus:border-accent disabled:opacity-50"
           />
           <p className="mt-1 text-[11px] text-content-muted">
-            default {defaults.measurement.keyword}
+            {tx("default")} {defaults.measurement.keyword}
           </p>
         </div>
       )}
 
       {m.weightMode === 'formula' && (
         <div className="space-y-2 pt-1">
-          <h4 className="text-xs font-medium text-content-secondary">Formula weights</h4>
+          <h4 className="text-xs font-medium text-content-secondary">{tx("Formula weights")}</h4>
           <WeightSlider
             label="FWHM"
             value={m.formula.fwhm}
@@ -157,7 +159,7 @@ export function MeasurePanel({
             disabled={disabled}
           />
           <WeightSlider
-            label="Eccentricity"
+            label={tx("Eccentricity")}
             value={m.formula.eccentricity}
             defaultValue={defaults.measurement.formula.eccentricity}
             onCommit={(n) => patchFormula({ eccentricity: n })}
@@ -171,14 +173,14 @@ export function MeasurePanel({
             disabled={disabled}
           />
           <WeightSlider
-            label="Stars"
+            label={tx("Stars")}
             value={m.formula.stars}
             defaultValue={defaults.measurement.formula.stars}
             onCommit={(n) => patchFormula({ stars: n })}
             disabled={disabled}
           />
           <WeightSlider
-            label="Pedestal"
+            label={tx("Pedestal")}
             value={m.formula.pedestal}
             defaultValue={defaults.measurement.formula.pedestal}
             onCommit={(n) => patchFormula({ pedestal: n })}
@@ -188,7 +190,7 @@ export function MeasurePanel({
       )}
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">PSF model</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("PSF model")}</label>
         <select
           value={m.psfModel}
           disabled={disabled}
@@ -197,17 +199,17 @@ export function MeasurePanel({
         >
           {PSF_MODELS.map((v) => (
             <option key={v} value={v}>
-              {psfModelLabel(v)}
+              {tx(psfModelLabel(v))}
             </option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {psfModelLabel(defaults.measurement.psfModel)}
+          {tx("default")} {tx(psfModelLabel(defaults.measurement.psfModel))}
         </p>
       </div>
 
       <NumericField
-        label="Max stars"
+        label={tx("Max stars")}
         value={m.maxStars}
         onCommit={(n) => patchMeasurement({ maxStars: Math.round(n) })}
         min={1}
@@ -217,7 +219,7 @@ export function MeasurePanel({
       />
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Seed detector</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Seed detector")}</label>
         <select
           value={m.seedDetector}
           disabled={disabled}
@@ -226,12 +228,12 @@ export function MeasurePanel({
         >
           {SEED_DETECTORS.map((v) => (
             <option key={v} value={v}>
-              {seedDetectorLabel(v)}
+              {tx(seedDetectorLabel(v))}
             </option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {seedDetectorLabel(defaults.measurement.seedDetector)} — which stars the
+          {tx("default")} {tx(seedDetectorLabel(defaults.measurement.seedDetector))} — which stars the
           fits start from. The structure map groups connected pixels instead of
           thresholding single ones, so it finds fewer stars on an undersampled frame; it
           has no threshold of its own, ignores the two settings below, and drops the
@@ -243,7 +245,7 @@ export function MeasurePanel({
       </div>
 
       <NumericField
-        label="Detection threshold (σ)"
+        label={tx("Detection threshold (σ)")}
         value={m.detectionSigma}
         onCommit={(n) => patchMeasurement({ detectionSigma: n })}
         min={1}
@@ -254,7 +256,7 @@ export function MeasurePanel({
       />
 
       <div>
-        <label className="block text-xs text-content-secondary mb-1">Seed pre-filter</label>
+        <label className="block text-xs text-content-secondary mb-1">{tx("Seed pre-filter")}</label>
         <select
           value={m.seedPrefilter}
           disabled={disabled || peakOnlyDisabled}
@@ -263,20 +265,20 @@ export function MeasurePanel({
         >
           {SEED_PREFILTERS.map((v) => (
             <option key={v} value={v}>
-              {seedPrefilterLabel(v)}
+              {tx(seedPrefilterLabel(v))}
             </option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-content-muted">
-          default {seedPrefilterLabel(defaults.measurement.seedPrefilter)} — what star
+          {tx("default")} {tx(seedPrefilterLabel(defaults.measurement.seedPrefilter))} — what star
           detection runs on. The fits themselves always measure the untouched frame.
         </p>
       </div>
 
       <div className="pt-3 border-t border-border/60 space-y-3">
-        <h4 className="text-xs font-medium text-content-secondary">Selection filters</h4>
+        <h4 className="text-xs font-medium text-content-secondary">{tx("Selection filters")}</h4>
         <NumericField
-          label="Min weight fraction"
+          label={tx("Min weight fraction")}
           value={sel.minWeightFraction}
           onCommit={(n) => patchSelection({ minWeightFraction: n })}
           min={0}
@@ -286,7 +288,7 @@ export function MeasurePanel({
           help={`default ${defaults.selection.minWeightFraction}`}
         />
         <NullableNumericField
-          label="Max FWHM (px)"
+          label={tx("Max FWHM (px)")}
           value={sel.maxFwhmPx}
           presetDefaultValue={defaults.selection.maxFwhmPx}
           onCommit={(n) => patchSelection({ maxFwhmPx: n })}
@@ -296,7 +298,7 @@ export function MeasurePanel({
           help={nullableDefaultHelp(defaults.selection.maxFwhmPx, 'every frame passes regardless of FWHM')}
         />
         <NullableNumericField
-          label="Max eccentricity"
+          label={tx("Max eccentricity")}
           value={sel.maxEccentricity}
           presetDefaultValue={defaults.selection.maxEccentricity}
           onCommit={(n) => patchSelection({ maxEccentricity: n })}
@@ -307,7 +309,7 @@ export function MeasurePanel({
           help={nullableDefaultHelp(defaults.selection.maxEccentricity, 'every frame passes regardless of eccentricity')}
         />
         <NullableNumericField
-          label="Min stars"
+          label={tx("Min stars")}
           value={sel.minStars}
           presetDefaultValue={defaults.selection.minStars}
           onCommit={(n) => patchSelection({ minStars: n === null ? null : Math.round(n) })}
@@ -324,7 +326,7 @@ export function MeasurePanel({
             onChange={(e) => patchSelection({ excludeOnRegistrationFailure: e.target.checked })}
             className="w-4 h-4 rounded border-border bg-surface-hover text-accent focus:ring-accent disabled:opacity-50"
           />
-          <span className="text-sm text-content-secondary">Exclude frames whose registration failed</span>
+          <span className="text-sm text-content-secondary">{tx("Exclude frames whose registration failed")}</span>
         </label>
       </div>
 
@@ -341,8 +343,7 @@ export function MeasurePanel({
             }`}
           >
             <RefreshCw size={14} />
-            Re-measure
-          </button>
+            {tx("Re-measure")}</button>
         </div>
       )}
     </div>

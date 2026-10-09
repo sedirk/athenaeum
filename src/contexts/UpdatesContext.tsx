@@ -4,6 +4,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
+import { openUrl } from '../api/desktop';
+import { checkCommunityUpdates, communityNotes } from '../api/communityUpdates';
 import { useNotifications } from './NotificationContext';
 import type { UpdateCheck, WhatsNew } from '../types/models';
 
@@ -108,12 +110,12 @@ export function UpdatesProvider({ children }: { children: ReactNode }) {
     checkRef.current = null;
     setPhase((p) => (p.kind === 'failed' || p.kind === 'restartFailed' ? { kind: 'idle' } : p));
     try {
-      const result = await api.invoke<UpdateCheck>('check_for_updates');
+      const result = await checkCommunityUpdates();
       checkRef.current = result;
       setCheck(result);
       return result;
     } catch (err) {
-      const msg = typeof err === 'string' ? err : 'Failed to check for updates';
+      const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to check for updates';
       console.error('check_for_updates:', err);
       setCheckError(msg);
       return null;
@@ -123,11 +125,11 @@ export function UpdatesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openAvailable = useCallback(() => setDialog('available'), []);
-  const openWhatsNew = useCallback((w: WhatsNew) => { setWhatsNew(w); setDialog('whatsNew'); }, []);
+  const openWhatsNew = useCallback((w: WhatsNew) => { setWhatsNew(communityNotes(w)); setDialog('whatsNew'); }, []);
   const openReleaseNotes = useCallback(async () => {
     try {
       const w = await api.invoke<WhatsNew>('get_release_notes');
-      setWhatsNew(w);
+      setWhatsNew(communityNotes(w));
       setDialog('whatsNew');
     } catch (err) {
       console.error('get_release_notes:', err);
@@ -138,13 +140,10 @@ export function UpdatesProvider({ children }: { children: ReactNode }) {
   const install = useCallback(async () => {
     const current = checkRef.current;
     if (!current) return;
-    setPhase({ kind: 'downloading', downloaded: 0, total: null });
     try {
-      // The Tauri command takes `channel` directly (not a wrapped `args`
-      // struct) — see `crates/athenaeum-tauri/src/commands/updates.rs`'s
-      // `install_update(app, state, channel: Channel)`.
-      await api.invoke('install_update', { channel: current.channel });
-      // `update-ready` sets the ready phase; on Windows the app exits before.
+      // The fork has no upstream signing key. Never call install_update here,
+      // even if a stale or malformed check incorrectly sets platformSupported.
+      await openUrl(current.downloadPageUrl);
     } catch (err) {
       const message = typeof err === 'string' ? err : 'The update could not be installed';
       console.error('install_update:', err);
