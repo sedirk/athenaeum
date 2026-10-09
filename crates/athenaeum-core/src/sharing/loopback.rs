@@ -14,7 +14,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use super::iroh::proto::OfferEntry;
 use super::types::{
@@ -31,6 +31,10 @@ use crate::sync::DedupResponder;
 ///   at least this many bytes, then disarms so a subsequent fetch succeeds.
 /// - `duplicate_ack`: the next `ack` delivers its event twice.
 /// - `delay_ack`: sleep this long before delivering an ack.
+/// - `fetch_gate` / `ack_gate`: wait for the watch value to become `true` before
+///   fetching (including serve-progress events) / delivering an ack. These
+///   test-controlled gates let assertions observe a phase without racing a
+///   short sleep. Dropping a closed gate's sender is an error, not a release.
 /// - `delay_per_read`: sleep this long after every fetch read chunk, so a whole
 ///   `fetch` takes a controllable, non-trivial wall-clock duration. Test-only,
 ///   additive, off by default — the abort knob can only *fail* a fetch, so this
@@ -51,6 +55,8 @@ pub struct FaultPlan {
     pub abort_after_bytes: Option<u64>,
     pub duplicate_ack: bool,
     pub delay_ack: Option<Duration>,
+    pub fetch_gate: Option<watch::Receiver<bool>>,
+    pub ack_gate: Option<watch::Receiver<bool>>,
     pub delay_per_read: Option<Duration>,
     pub fail_ack_once: bool,
     pub fetch_local_fault_once: bool,
@@ -354,6 +360,18 @@ impl SharingTransport for LoopbackTransport {
         dest_dir: &Path,
         sink: FetchSink,
     ) -> anyhow::Result<()> {
+        let gate = self
+            .fault
+            .lock()
+            .expect("fault mutex poisoned")
+            .fetch_gate
+            .clone();
+        if let Some(mut gate) = gate {
+            gate.wait_for(|open| *open)
+                .await
+                .context("loopback fetch gate dropped before release")?;
+        }
+
         // Resolve the provider's served package (source dir + optional want subset).
         let served = {
             let reg = self.registry.lock().expect("registry mutex poisoned");
@@ -694,13 +712,18 @@ impl SharingTransport for LoopbackTransport {
 
         // Read fault knobs up front; do not hold the lock across await. A one-shot
         // `fail_ack_once` disarms itself as it fires so the next ack succeeds.
-        let (delay, duplicate, fail_once) = {
+        let (delay, gate, duplicate, fail_once) = {
             let mut fault = self.fault.lock().expect("fault mutex poisoned");
             let fail_once = fault.fail_ack_once;
             if fail_once {
                 fault.fail_ack_once = false;
             }
-            (fault.delay_ack, fault.duplicate_ack, fail_once)
+            (
+                fault.delay_ack,
+                fault.ack_gate.clone(),
+                fault.duplicate_ack,
+                fail_once,
+            )
         };
         if fail_once {
             tracing::warn!(
@@ -712,6 +735,11 @@ impl SharingTransport for LoopbackTransport {
         }
         if let Some(d) = delay {
             tokio::time::sleep(d).await;
+        }
+        if let Some(mut gate) = gate {
+            gate.wait_for(|open| *open)
+                .await
+                .context("loopback ack gate dropped before release")?;
         }
 
         let deliveries = if duplicate { 2 } else { 1 };

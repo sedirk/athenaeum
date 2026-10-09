@@ -3229,11 +3229,42 @@ async fn receiver_cancel_records_v2_history_files_and_both_journals() {
     receiver.shutdown().await;
 }
 
+/// Snapshot the durable sender state at the byte-carrying serve event itself.
+/// Polling the row later can miss Delivered, or see a NEW timeout while the test
+/// deliberately holds the ack. Neither says whether recovery cleared the old
+/// error when bytes started flowing.
+struct ServingStateEmitter {
+    ctx: Arc<ServiceContext>,
+    snapshots: Mutex<Vec<(String, String, Option<String>)>>,
+}
+
+impl ProgressEmitter for ServingStateEmitter {
+    fn emit_json(&self, name: &str, payload: serde_json::Value) {
+        let stage = payload["stage"].as_str().unwrap_or_default();
+        if name == "sync-progress"
+            && payload["direction"] == "sent"
+            && matches!(stage, "transferring" | "uploaded")
+            && payload["bytesDone"].as_u64().is_some()
+        {
+            let id = payload["packageId"]
+                .as_str()
+                .expect("sender package id")
+                .parse::<i64>()
+                .expect("durable outbound id");
+            let (state, error) = outbound_state_error(self.ctx.db.get().unwrap(), id);
+            self.snapshots
+                .lock()
+                .unwrap()
+                .push((stage.to_string(), state, error));
+        }
+    }
+}
+
 /// Spec §D5/§D7 — **ack-timeout → waiting → recovery leaves no sticky error**. A
-/// silent peer (its fetch aborts once, so no ack) drives one ack timeout: the row
+/// silent peer (its fetch is gated, so no ack) drives an ack timeout: the row
 /// arms `next_retry_at`, sets `last_error`, journals `ack_timeout` + `retry_scheduled`,
-/// and `get_status` reports `displayState == "waiting"` with `stalledUntil`. On the
-/// next attempt the serve tick clears `last_error` at the `Delivered`/serving stage
+/// and `get_status` reports `displayState == "waiting"` with `stalledUntil`. After
+/// releasing the fetch, the serve tick clears `last_error` at the serving stage
 /// — BEFORE the confirm ack lands (the T4 Req-5 mechanism the unit suite checked
 /// only at `confirmed`) — and the transfer finally confirms with a clean summary
 /// and `ack_received` + `confirmed` journalled.
@@ -3263,12 +3294,15 @@ async fn ack_timeout_waiting_then_recovery_clears_error_at_serving_stage() {
     designate_incoming(&primary_ctx, &designated);
     let incoming = incoming_resolver_for(&primary_ctx, primary_dir.join("incoming"));
 
-    // Attempt 1 aborts (one-shot) → no ack → ack timeout. Attempt 2 completes but
-    // holds the ack 300ms (< the 600ms timeout, so no re-timeout) so the row rests
-    // in Delivered with the error already cleared, before it confirms.
+    // No bytes can flow until Phase 1 has inspected the timeout. Once released,
+    // the ack stays gated until Phase 2 has inspected recovery. The previous
+    // one-shot abort + 300ms ack delay let a busy Windows runner miss either
+    // transient phase completely and poll a confirmed row until WAIT expired.
+    let (release_fetch, fetch_gate) = tokio::sync::watch::channel(false);
+    let (release_ack, ack_gate) = tokio::sync::watch::channel(false);
     receiver_ep.set_fault(FaultPlan {
-        abort_after_bytes: Some(1),
-        delay_ack: Some(Duration::from_millis(300)),
+        fetch_gate: Some(fetch_gate),
+        ack_gate: Some(ack_gate),
         ..Default::default()
     });
 
@@ -3285,8 +3319,18 @@ async fn ack_timeout_waiting_then_recovery_clears_error_at_serving_stage() {
     .await
     .expect("spawn primary receiver");
 
-    let (engine, sender, collab_sender, sync) =
-        inject_sender_engine(&net, &capture_db, receiver_node, Duration::from_millis(600)).await;
+    let serving = Arc::new(ServingStateEmitter {
+        ctx: Arc::clone(&capture_ctx),
+        snapshots: Mutex::new(Vec::new()),
+    });
+    let (engine, sender, collab_sender, sync) = inject_sender_engine_with_emitter(
+        &net,
+        &capture_db,
+        receiver_node,
+        Duration::from_millis(600),
+        serving.clone(),
+    )
+    .await;
 
     let mut frame_ids = Vec::with_capacity(N);
     for idx in 0..N {
@@ -3334,8 +3378,9 @@ async fn ack_timeout_waiting_then_recovery_clears_error_at_serving_stage() {
         "retry_scheduled journalled: {kinds:?}"
     );
 
-    // …and `get_status` presents it as a neutral `waiting` with a stall deadline —
-    // polled so it catches the (single) backoff window while it is open.
+    // …and `get_status` presents it as a neutral `waiting` with a stall deadline.
+    // A late poll can catch a later retry: the fetch remains gated throughout,
+    // so recovery cannot race these assertions.
     {
         let deadline = Instant::now() + WAIT;
         loop {
@@ -3355,18 +3400,49 @@ async fn ack_timeout_waiting_then_recovery_clears_error_at_serving_stage() {
         }
     }
 
-    // Phase 2 — recovery: the serve tick clears the stale error at the Delivered
-    // (serving) stage, BEFORE the confirm ack.
+    assert_eq!(count(pdb, "SELECT COUNT(*) FROM frames"), 0);
+    assert!(serving.snapshots.lock().unwrap().is_empty());
+
+    // Phase 2 — recovery: snapshot the real DB at the serve tick, BEFORE the ack.
+    // Keep the snapshot so a slow observer (even one delayed past another ack
+    // timeout) cannot miss the transition or confuse a fresh timeout with the
+    // stale error that this test is checking.
+    release_fetch.send(true).expect("release receiver fetch");
     wait_until(
         || {
-            let (state, err) = outbound_state_error(cdb, id);
-            state == "delivered" && err.is_none()
+            serving
+                .snapshots
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(stage, _, _)| stage == "uploaded")
         },
         WAIT,
     )
     .await;
+    // Deliberately observe later than the OLD 300ms window / 600ms timeout.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    {
+        let snapshots = serving.snapshots.lock().unwrap();
+        let (_, _, error) = snapshots
+            .iter()
+            .find(|(stage, _, _)| stage == "transferring")
+            .expect("recovery emitted byte-carrying serve progress");
+        assert_eq!(error, &None, "the first recovery serve tick clears last_error");
+        let (_, state, _) = snapshots
+            .iter()
+            .find(|(stage, _, _)| stage == "uploaded")
+            .unwrap();
+        assert_eq!(state, "delivered", "uploaded is persisted before confirmation");
+    }
+    assert_ne!(outbound_state(cdb, id), "confirmed", "ack is still gated");
+    assert!(
+        !journal_kinds(cdb, "sent", id).contains(&"ack_received".to_string()),
+        "recovery was checked before any confirmation ack"
+    );
 
     // …then the transfer confirms with a clean summary + journal.
+    release_ack.send(true).expect("release receiver ack");
     wait_until(|| outbound_state(cdb, id) == "confirmed", WAIT).await;
     wait_until(
         || count(pdb, "SELECT COUNT(*) FROM frames") == N as i64,
